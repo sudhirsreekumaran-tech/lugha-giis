@@ -1,0 +1,506 @@
+import { cabinets,difficulty } from './arcade-engine.mjs';
+import { mountArcade } from './arcade-ui.mjs';
+import { worlds,games,scenes,ranks,cosmetics,alphabetLetters } from './content.mjs';
+const $=selector=>document.querySelector(selector);
+const main=$('#main'), dialog=$('#dialog');
+const escape=value=>String(value??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[x]);
+const ar=value=>'<bdi class="ar" dir="rtl" lang="ar">'+escape(value)+'</bdi>';
+const rich=value=>/\p{Script=Arabic}/u.test(value)?ar(value):escape(value);
+const paths={
+ home:'M3 10 12 3l9 7v10H3z M9 20v-6h6v6',map:'M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z M9 3v15 M15 6v15',game:'M7 8h10c3 0 4 3 5 7s-2 5-4 3l-2-2H8l-2 2c-2 2-5 1-4-3s2-7 5-7z M7 11v4m-2-2h4m7 0h1m2 2h1',chat:'M3 4h18v13H9l-6 4z M8 10h8m-8 3h5',pen:'M4 16 16 4l4 4L8 20H4z M13 7l4 4',video:'M3 5h18v14H3z M10 9l5 3-5 3z',revision:'M4 11a8 8 0 1 1 3 7 M4 5v6h6',chart:'M4 20h16 M6 17v-4m6 4V8m6 9V4',gift:'M3 9h18v4H3z M5 13v8h14v-8 M12 9v12 M12 9C2 9 6 0 12 9c6-9 10 0 0 0z',settings:'M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2',flame:'M12 22c-6 0-9-5-6-10 1 2 3 2 3 0-1-5 2-7 4-10-1 5 6 7 6 13 0 4-3 7-7 7z',gem:'M3 8l4-4h10l4 4-9 12z M3 8h18m-13 0 4 12 4-12',bolt:'M13 2 4 14h7l-1 8 10-12h-7z',target:'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M12 7a5 5 0 1 0 0 10 5 5 0 1 0 0-10 M12 11v2',lock:'M6 10h12v11H6z M8 10V7a4 4 0 0 1 8 0v3',spark:'M12 2l2.6 7.4L22 12l-7.4 2.6L12 22l-2.6-7.4L2 12l7.4-2.6z',more:'M5 12h1m5 0h1m5 0h1',play:'m8 5 11 7-11 7z',help:'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M9 9a3 3 0 1 1 4 3l-1 2m0 3h.01'
+};
+const icon=name=>'<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="'+(paths[name]||paths.spark)+'"/></svg></span>';
+const nav=[['home','Home','home'],['adventure','Adventure','map'],['games','Mini-Games','game'],['tutor','AI Tutor','chat'],['writing','Writing Lab','pen'],['videos','Videos','video'],['revision','Revision','revision'],['progress','My Progress','chart'],['rewards','Rewards','gift'],['settings','Settings','settings'],['about','About','help']];
+const btn=(title,action,cls='')=>'<button type="button" class="btn '+cls+'" data-action="'+escape(action)+'">'+title+'</button>';
+const link=(title,route,cls='')=>'<a class="btn '+cls+'" href="#'+route+'">'+title+'</a>';
+const opts=(values,value)=>values.map(x=>'<option '+(x===value?'selected':'')+'>'+escape(x)+'</option>').join('');
+const intro=(title,desc)=>'<div class="section-intro"><h1>'+title+'</h1><p>'+desc+'</p></div>';
+const progress=(value,label)=>'<div class="progress" role="progressbar" aria-label="'+escape(label)+'" aria-valuenow="'+Math.round(Math.min(100,Math.max(0,value)))+'" aria-valuemin="0" aria-valuemax="100"><i style="width:'+Math.max(0,Math.min(100,value))+'%"></i></div>';
+const card=(symbol,title,desc,control='',color='lavender')=>'<article class="panel card"><div class="tile-icon '+color+'">'+symbol+'</div><h3>'+title+'</h3><p>'+desc+'</p>'+control+'</article>';
+let state,lessons=[],route='home',args=[],round,study,toastTimer,playing,recognition,tracking=0, busy=false;
+let earcons, gameRun, disposeArcade=()=>{}, branding={logo:false};
+let tutor={scene:0,history:[],active:false,ai:false},video=null,writing={index:0,dictation:false},filters={},assignments=[];
+async function api(path,data){
+ const res=await fetch('/api/'+path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const payload=await res.json();
+ if(!res.ok)throw Error(payload.error||'Please try again.');
+ return payload;
+}
+function notify(text){
+ const node=$('#toast');node.textContent=text;node.classList.add('visible');
+ clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove('visible'),4800);
+}
+function apply(){
+ const p=state.profile,b=document.body;
+ b.dataset.mode=p.mode;b.dataset.theme=p.theme;b.dataset.motion=p.motion;
+ b.style.setProperty('--ar',(p.arabic+(p.mode==='Dyslexia'?18:0))/100);
+ b.style.setProperty('--en',(p.english+(p.mode==='Dyslexia'?12:0))/100);
+ b.style.setProperty('--spacing',p.mode==='Dyslexia'?Math.max(1.85,p.spacing):p.spacing);
+}
+function chrome(){
+ const links=(list)=>list.map(([id,title,symbol])=>'<a href="#'+id+'" class="nav-link '+(route===id?'active':'')+'" '+(route===id?'aria-current="page"':'')+'>'+icon(symbol)+escape(title)+'</a>').join('');
+ $('#sidebar').innerHTML='<a href="#home" class="brand"><span class="logo" lang="ar">ل</span><span>LUGHA<small>A GIIS Student Innovation</small></span></a><div class="label nav-label">Explore</div><nav aria-label="Explore">'+links(nav.slice(0,7))+'</nav><div class="label nav-label">Your journey</div><nav aria-label="Your journey">'+links(nav.slice(7).concat(state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]))+'</nav><div class="sidebar-bottom"><a class="mode-link" href="#settings">'+icon('help')+escape(state.profile.mode)+' Mode</a></div>';
+ $('#mobile').innerHTML=links([nav[0],nav[1],nav[2],nav[3],['more','More','more']]);
+ $('#topbar').innerHTML='<div class="top-heading">'+schoolLogo('header-logo')+'<span class="crumb">'+escape(nav.find(x=>x[0]===route)?.[1]||({world:'Adventure',lesson:'Adventure',activity:'Practice',materials:'Study Materials',teacher:'Classrooms',admin:'Content Studio',more:'Explore'})[route]||'LUGHA')+'</span></div><div class="top-stats"><a href="#progress" class="chip" aria-label="'+state.streak+' day streak"><span class="fire">'+icon('flame')+'</span>'+state.streak+'</a><a href="#rewards" class="chip" aria-label="'+state.gems+' gems"><span class="gem">'+icon('gem')+'</span>'+state.gems+'</a><a href="#progress" class="chip"><span class="xp">'+icon('bolt')+'</span>'+state.xp+' XP</a><button class="avatar" data-action="'+(state.guest?'account':'profile')+'" aria-label="Account">'+escape(cosmetics[state.profile.equipped]?.[2]||state.profile.avatar)+'</button></div>';
+}
+function unlocked(world){return world===0||state.bosses.includes(world-1);}
+function recommended(){
+ const next=lessons.find(x=>unlocked(x.world)&&!state.completed.includes(x.id));
+ if(next)return next;
+ return lessons.find(x=>x.id===state.study[0]?.lesson)||lessons[0];
+}
+function worldRow(world,index){
+ const status=state.bosses.includes(index)?'Completed':unlocked(index)?'Available':'Locked';
+ return '<a class="world" href="#world/'+index+'"><span class="tile-icon '+world[3]+'" aria-hidden="true">'+world[1]+'</span><span class="fill"><span class="world-title">'+world[0]+'</span><br><span class="meta">'+world[2]+'</span></span><span class="world-status '+(status==='Locked'?'locked':'')+'">'+status+'</span></a>';
+}
+function levelPanel(){
+ const pct=state.next?100*(state.xp-state.base)/(state.next-state.base):100;
+ return '<section class="panel"><div class="heading"><h3>Your level</h3>'+icon('bolt')+'</div><div class="level-content"><div class="ring" style="--pct:'+pct+'%" aria-label="Level '+(state.level+1)+'"><span>Lv '+(state.level+1)+'</span></div><div class="fill"><strong>'+ranks[state.level]+'</strong>'+progress(pct,'XP to next level')+'<div class="meta">'+state.xp+' XP '+(state.next?'· '+(state.next-state.xp)+' to next level':'· Max level')+'</div></div></div></section>';
+}
+function missionDeck(){
+ const [spotlight,featured]=Object.entries(cabinets)[Math.floor(Date.now()/86400000)%Object.keys(cabinets).length];
+ const {title:name,description:desc,icon:symbol}=featured;
+ return '<section class="mission-deck" aria-labelledby="play-today"><div class="heading"><h2 id="play-today">Pick a side quest</h2><a href="#games">All games</a></div><div class="side-missions">'+
+ '<a class="side-mission mint" href="#arcade/'+spotlight+'"><span class="side-symbol" aria-hidden="true">'+symbol+'</span><strong>'+name+'</strong><span>'+desc+'</span></a>'+
+ '<a class="side-mission blue" href="#revision"><span class="side-symbol" aria-hidden="true">↻</span><strong>Rematch</strong><span>Take on words you’ve met before.</span></a>'+
+ '<a class="side-mission yellow" href="#rewards"><span class="side-symbol" aria-hidden="true">◇</span><strong>Treasure chest</strong><span>Equip a reward with earned gems.</span></a></div></section>';
+}
+function schoolLogo(cls=''){
+ return branding.logo?'<img src="/giis-logo.png" class="giis-logo '+cls+'" alt="Global Indian International School">':'';
+}
+function about(){
+ return intro('About LUGHA','Play. Learn. Connect.')+'<section class="panel">'+schoolLogo()+'<h2>A GIIS Student Innovation</h2><p>LUGHA is an Arabic learning and arcade project developed as a student innovation. Its challenges draw inspiration from GIIS’s holistic approach to education.</p><a class="btn outline" href="https://globalindianschool.org/the-gsf-difference/9gems/" target="_blank" rel="noopener noreferrer">GIIS 9GEMS framework</a></section>';
+}
+function records(){
+ return '<section class="panel"><div class="heading"><h3>Arcade personal bests</h3><a href="#games">LUGHA Arcade</a></div>'+((state.arcadeBests||[]).map(row=>'<p>'+escape(cabinets[row.game]?.title||row.game)+' · '+row.score+' points · '+row.accuracy+'% accuracy</p>').join('')||'<p>Finish an arcade run to set your first record.</p>')+'</section>';
+}
+function arcadePage(){
+ const name=args[0], game=Object.hasOwn(cabinets,name)&&cabinets[name];
+ if(!game)return intro('Game unavailable','Choose a cabinet in LUGHA Arcade.')+link('LUGHA Arcade','games');
+ if(gameRun?.config.game!==name||!gameRun?.next){
+  const best=state.arcadeBests?.find(x=>x.game===name);
+  const proficiency=['Complete Beginner','Beginner','Intermediate','Advanced'].indexOf(state.profile.level);
+  const suggested=difficulty[state.profile.mode==='Normal'?Math.min(3,Math.max(proficiency,best?.accuracy>=85?2:1)):0];
+  return '<section class="panel arcade-frame">'+link('LUGHA Arcade','games','outline small')+'<div class="arcade-cover" style="border-radius:14px;margin-top:10px"><h1>'+game.title+'</h1><p>'+game.description+'</p></div><p>'+game.instructions+'</p><p>Use arrow keys, WASD, or touch controls. Press P to pause. '+(best?'Personal best: '+best.score+' points.':'')+'</p><form id="arcade-start"><label>Difficulty<select name="difficulty">'+opts(difficulty,suggested)+'</select></label><label>Question world<select name="world"><option value="">Mixed practice</option>'+worlds.map((world,i)=>'<option value="'+i+'" '+(args[1]===String(i)?'selected':'')+'>'+world[0]+'</option>').join('')+'</select></label><label class="check"><input type="checkbox" name="assist" '+(state.profile.mode!=='Normal'?'checked':'')+'> Untimed assist · remove hazards and move one step at a time</label><button class="btn">Start game</button></form></section>';
+ }
+ if(gameRun.done)return '<section class="panel arcade-frame celebrate"><h1>Mission complete</h1><p>'+game.title+' · '+gameRun.score+' points · '+gameRun.accuracy+'% accuracy</p><p>Personal best: '+gameRun.best.score+' points'+(gameRun.earned?' · +50 XP · +5 gems':'')+'</p><div class="row">'+btn('Play again','arcadereset')+link('LUGHA Arcade','games','outline')+'</div></section>';
+ return '<section class="panel arcade-frame"><div class="heading"><h2>'+game.title+'</h2><div class="arcade-score"><span id="arcade-score">0</span> pts</div></div><div id="arcade-checkpoint" class="meta"></div><div class="arcade-prompt" id="arcade-prompt"></div><ul class="arcade-runes" aria-label="Answer choices">'+[...'ABCD'].map(letter=>'<li data-rune hidden><span class="rarity">'+letter+'</span><bdi lang="ar" dir="rtl"></bdi></li>').join('')+'</ul><div class="cabinet-scene"><canvas id="arcade-canvas">Use the directional buttons below to move.</canvas></div><div class="pad" aria-label="Game controls">'+[['w','◀','Move left'],['n','▲','Move up'],['s','▼','Move down'],['e','▶','Move right']].map(([key,label,desc])=>'<button type="button" data-move="'+key+'" aria-label="'+desc+'" class="btn subtle">'+label+'</button>').join('')+(game.action?'<button type="button" class="btn subtle" data-move="x">'+game.action+'</button>':'')+'<button type="button" class="btn outline" id="arcade-pause">Pause</button>'+btn('Restart','arcadereset','outline')+'</div><p id="arcade-status" class="arcade-status" role="status"></p></section>';
+}
+function report(){
+ const certificate=args[0]==='certificate';
+ return '<section class="panel print-sheet">'+schoolLogo()+'<p>A GIIS Student Innovation</p><h1>'+(certificate?'LUGHA achievement certificate':'LUGHA student progress report')+'</h1><p>'+escape(state.profile.name)+'</p>'+(certificate?'<ul>'+state.achievements.filter(x=>x[2]).map(x=>'<li>'+escape(x[0])+'</li>').join('')+'</ul>':'<p>'+state.completed.length+' lessons completed · '+state.xp+' XP · '+state.bosses.length+' worlds cleared</p>'+records())+btn('Print','print','outline')+'</section>';
+}
+function gameGrid(){
+ return '<div class="arcade-cover panel"><h1>LUGHA Arcade</h1><p>Play. Learn. Connect.</p></div><div class="arcade-grid">'+Object.entries(cabinets).map(([id,game])=>'<article class="arcade-card panel"><div class="arcade-art '+game.colour+'"><span aria-hidden="true">'+game.icon+'</span></div><div class="arcade-info"><h3>'+game.title+'</h3><p>'+game.description+'</p>'+link('Play','arcade/'+id)+'</div></article>').join('')+'</div><h2 style="margin:20px 0 12px">Practice games</h2><div class="arcade-grid">'+games.map(([title,desc,symbol],i)=>
+ '<article class="arcade-card panel"><div class="arcade-art '+worlds[i%8][3]+'"><span aria-hidden="true">'+symbol+'</span></div><div class="arcade-info"><h3>'+title+'</h3><p>'+desc+'</p>'+link(i===11?'Choose a world':'Play','game/'+i,'subtle small')+'</div></article>'
+ ).join('')+'</div>';
+}
+function home(){
+ const next=recommended();
+ const start=state.completed.length||state.study.length?'Continue learning':'Start learning';
+ return '<div class="welcome"><div><div class="label">Your learning dashboard</div><h1>Marhaban, '+escape(state.profile.name)+'! <span aria-hidden="true">✦</span></h1><p>Choose your next mission and explore with Noor.</p></div>'+link(icon('settings')+' Accessibility','settings','outline small')+'</div><div class="dashboard"><div class="stack"><section class="hero" aria-label="Noor the desert fox welcomes you"><div class="hero-content"><span class="eyebrow">Your next lesson</span><h2>'+escape(worlds[next.world][0])+'</h2><p>'+escape(next.title)+' with Noor.</p>'+link(icon('play')+' '+start,'lesson/'+next.id)+'</div></section><section class="panel"><div class="heading"><h2>The World of LUGHA</h2><a href="#adventure">View map</a></div><div class="world-list">'+worlds.slice(0,3).map(worldRow).join('')+'</div></section>'+missionDeck()+'<section class="panel"><h3>School values challenge</h3><p>Explore Emirati heritage while crossing the map.</p>'+link('Play Cultural Explorer','arcade/cross/6','subtle small')+'</section></div><div class="stack">'+levelPanel()+'<section class="panel quest"><div class="quest-title"><div class="tile-icon">'+icon('target')+'</div><div><h3>Daily quest</h3><div class="meta">100 XP · 10 gems</div></div></div><p>'+ (state.daily?'Quest complete!':'Complete 2 lessons today.')+'</p>'+progress(state.dailyCount*50,'Daily quest')+'<span class="meta">'+Math.min(state.dailyCount,2)+' / 2 lessons</span>'+link(state.daily?'View progress':'Continue quest',state.daily?'progress':'lesson/'+next.id,'subtle wide small')+'</section><section class="panel"><div class="heading"><h3>Quick practice</h3></div>'+[['games','Word Match','Learn through play','game','mint'],['tutor','Practise with Layla','Arabic conversation','chat','pink'],['writing','Writing Lab','Build handwriting skills','pen','blue']].map(([dest,title,detail,symbol,color])=>'<a class="quick" href="#'+(dest==='games'?'game/0':dest)+'"><span class="tile-icon '+color+'">'+icon(symbol)+'</span><span><strong>'+title+'</strong><span class="meta">'+detail+'</span></span></a>').join('')+'</section>'+records()+'</div></div>';
+}
+function worldPage(){
+ const index=Number(args[0]), world=worlds[index];
+ if(!world)return intro('World unavailable','Choose a world from the map.');
+ const list=lessons.filter(x=>x.world===index),open=unlocked(index);
+ const done=list.filter(x=>state.completed.includes(x.id)).length;
+ return '<div class="row keypad">'+link('Arcade mission','arcade/maze/'+index,'subtle')+'</div><div class="panel hero-mini '+world[3]+'"><div class="tile-icon">'+world[1]+'</div><div><h1>'+world[0]+'</h1><p>'+world[2]+'</p></div></div><p>'+ (open?done+' of '+list.length+' lessons completed':'Clear '+worlds[index-1][0]+' to unlock this world.')+'</p><div class="grid">'+list.map((lesson,i)=>card('✦',escape(lesson.title),lesson.items.length+' learning items · '+(state.completed.includes(lesson.id)?'Completed':'Knowledge check'),open?link(state.completed.includes(lesson.id)?'Review lesson':'Open lesson','lesson/'+lesson.id,'subtle'):'',world[3])).join('')+card('♜','World challenge',state.bosses.includes(index)?'Completed · replay for practice':'Finish the lessons to open the challenge.',open&&done===list.length?btn('Start boss battle','start:boss:'+index):'','yellow')+'</div>';
+}
+function lessonPage(){
+ const lesson=lessons.find(x=>x.id===args[0]);
+ if(!lesson||!unlocked(lesson.world))return intro('Lesson locked','Complete the previous world challenge to continue.')+link('Open adventure map','adventure');
+ if(study?.id!==lesson.id)study={id:lesson.id,cursor:0,meaning:state.profile.mode!=='Dyslexia',example:state.profile.mode!=='Dyslexia'};
+ const item=lesson.items[study.cursor];
+
+ return '<section class="panel activity">'+link('Back to '+worlds[lesson.world][0],'world/'+lesson.world,'outline small')+'<p class="meta">Study card '+(study.cursor+1)+' of '+lesson.items.length+'</p><h2>'+escape(lesson.title)+'</h2>'+progress((study.cursor+1)*100/lesson.items.length,'Study cards')+'<div class="study-word"><bdi class="ar big" lang="ar" dir="rtl">'+escape(item.ar)+'</bdi></div><div class="row">'+soundButtons(item.ar)+btn(study.meaning?'Hide meaning':'Show meaning','meaning','subtle small')+btn(study.example?'Hide transliteration':'Show transliteration','example','outline small')+'</div>'+(study.meaning?'<p class="meaning"><strong>Meaning</strong> · '+escape(item.en)+'</p>':'')+(study.example?'<p class="phonetic"><strong>Transliteration</strong> · '+escape(item.say)+'</p>':'')+'<div class="row">'+(study.cursor?btn('Previous','study:-1','outline'):'')+(study.cursor<lesson.items.length-1?btn('Next','study:1','subtle'):'')+btn('Practise','start:lesson:'+lesson.id)+'</div></section>';
+}
+function soundButtons(value){
+ return btn('Listen','speak:'+encodeURIComponent(value),'outline small')+btn('Pause or resume','pause','outline small')+btn('Replay','speak:'+encodeURIComponent(value),'outline small');
+}
+function gamePage(){
+ const index=Number(args[0]),g=games[index];
+ if(!g||index===11)return intro('Boss Battle','Complete a world’s lessons before taking its boss challenge.')+link('View adventure map','adventure');
+ return '<section class="panel activity">'+link('Back to Mini-Games','games','outline small')+'<p class="tile-icon art-chip">'+g[2]+'</p><h2>'+g[0]+'</h2><p>'+g[1]+'</p><form id="game-form"><label>Difficulty<select name="difficulty">'+opts(['Gentle','Standard','Challenge'],state.profile.mode==='Normal'?'Standard':'Gentle')+'</select></label>'+(index===4?'<label>Format<select name="format">'+opts(['Audio','Text'],'Audio')+'</select></label>':'')+'<button class="btn">Play</button></form></section>';
+}
+async function start(kind,target,difficulty,visual=false){
+ const active=await api('attempt',{kind,target:String(target),difficulty:difficulty||(state.profile.mode==='Normal'?'Standard':'Gentle'),visual});
+ round={...active,kind,target,difficulty,visual,combo:0,bestCombo:0,order:[],pairs:[],selected:[],feedback:'',correct:false,score:null};
+ if(route==='activity')render();else location.hash='activity';
+ if(state.profile.audioInstructions) setTimeout(()=>{if(route==='activity'&&round?.id===active.id)speak(active.next.type==='trace'?'Trace the letters or use the keyboard.':'Choose or build your answer. You can try again.','en',true);},250);
+}
+function checkpointTrail(r){
+ return '<ol class="checkpoint-trail" aria-label="Round checkpoints">'+Array.from({length:r.total},(_,i)=>{
+  const status=i<r.position?'cleared':i===r.position?'current':'ahead';
+  return '<li class="'+status+'" '+(status==='current'?'aria-current="step"':'')+' aria-label="Checkpoint '+(i+1)+', '+status+'">'+(status==='cleared'?'✓':i+1)+'</li>';
+ }).join('')+'</ol>';
+}
+function victory(r){
+ if(r.kind==='writing'||r.next.type==='trace')return '';
+ const stars=r.score===100?3:r.score>=75?2:1;
+ return '<div class="victory-stars" aria-label="'+stars+' out of 3 stars"><span aria-hidden="true">'+'★'.repeat(stars)+'☆'.repeat(3-stars)+'</span></div>'+(r.bestCombo>=2?'<p class="combo-badge">Best combo ×'+r.bestCombo+'</p>':'');
+}
+function activityPage(){
+ if(!round)return intro('Choose a practice activity','Open a lesson or pick a mini-game.')+link('Explore the mini-games','games');
+ const r=round,q=r.next;
+ const title=({lesson:lessons.find(x=>x.id===r.target)?.title,game:games[r.target]?.[0],boss:'World challenge',revision:'Revision mission',writing:'Writing check',video:'Video knowledge check',placement:'Placement quiz'})[r.kind];
+ if(r.recommendation)return '<section class="panel activity"><h2>Suggested starting level</h2><p>'+escape(r.recommendation)+' · '+r.score+'% score</p><p>Choose this level to personalise Layla and save it in your profile. Adventure worlds still unlock through practice.</p><div class="row">'+btn('Use suggested level','placementlevel')+link('Return to Settings','settings','outline')+'</div></section>';
+ if(r.score!==null)return '<section class="panel activity celebrate"><div class="tile-icon art-chip">🦊</div>'+victory(r)+'<h2>Great work, '+escape(state.profile.name)+'!</h2><p>'+escape(title)+(q.type==='trace'?' · self-assessment saved':' complete · '+r.score+'% score')+'</p><p>'+ (r.earned?'Your progress and rewards are saved.':'Your earlier completion rewards are already saved.')+'</p><div class="row">'+link('Continue learning',r.kind==='boss'?'adventure':r.kind==='lesson'?'world/'+lessons.find(x=>x.id===r.target).world:'home')+btn('Replay','replay','outline')+link('View progress','progress','outline')+'</div></section>';
+ let controls='';
+ const options=q.options||[];
+ if(q.type==='order'){
+  controls='<div class="answer-box" aria-label="Your answer">'+ar(r.order.map(i=>options[i]).join(q.join))+'</div><div class="row keypad">'+options.map((x,i)=>btn(ar(x),'order:'+i,'outline'+(r.order.includes(i)?' used':''))).join('')+'</div><div class="row">'+btn('Undo','undoorder','outline')+btn('Check answer','checkorder')+'</div>';
+ }else if(q.type==='memory'){
+  const used=r.pairs.flat();
+  controls='<p>Turn over two cards at a time. Submit your pairs when all cards are placed.</p><div class="options">'+options.map((x,i)=>'<button class="btn option" data-action="memory:'+i+'" aria-label="'+escape(used.includes(i)||r.selected.includes(i)?x:'Card '+(i+1))+'" '+(used.includes(i)||r.selected.includes(i)?'disabled':'')+'>'+(used.includes(i)||r.selected.includes(i)?rich(x):'Card '+(i+1))+'</button>').join('')+'</div>'+r.pairs.map(pair=>'<span class="chip">'+pair.map(i=>rich(options[i])).join(' / ')+'</span>').join(' ')+'<div class="row">'+btn('Reset cards','resetmemory','outline')+(used.length===options.length?btn('Check pairs','checkmemory'):'')+'</div>';
+ }else if(q.type==='trace'){
+  controls=canvas(q.prompt)+'<p>Compare your writing with the guide, then confirm your self-assessment.</p>'+btn('I reviewed my work','trace-answer');
+ }else{
+  controls=(q.audio?soundButtons(q.audio)+btn('Start text version','visualgame','subtle small'):'')+'<div class="options">'+options.map((x,i)=>btn(rich(x),'answer:'+i,'option '+(r.kind==='game'&&Number(r.target)===2?'balloon':''))).join('')+'</div>';
+ }
+ const dash=Number(r.target)===6||Number(r.target)===7;
+ return '<section class="panel activity"><p class="label">'+escape(title)+'</p><h2>Question '+(r.position+1)+' of '+r.total+'</h2>'+checkpointTrail(r)+(r.combo>=2?'<div class="combo-badge">Combo ×'+r.combo+'</div>':'')+(r.kind==='game'&&dash?'<div class="progress-track" aria-hidden="true"><span style="left:'+r.position*90/r.total+'%">'+(Number(r.target)===6?'🦊':'💎')+'</span></div>':'')+'<p>'+ (q.ar?rich(q.prompt):escape(q.prompt))+'</p>'+controls+(r.feedback?'<div class="feedback '+(r.correct?'good':'')+'" role="status">'+escape(r.feedback)+'</div>':'')+'</section>';
+}
+function canvas(value){
+ return '<div class="canvas-wrap"><div class="trace-guide" lang="ar" dir="rtl" aria-hidden="true">'+escape(value)+'</div><canvas id="canvas" width="800" height="265" aria-label="Freehand writing area. Use the text alternative if you prefer."></canvas></div><div class="row keypad">'+btn('Undo stroke','undo-stroke','outline small')+btn('Clear canvas','clear-stroke','outline small')+'</div><label>Keyboard alternative<input id="typed-ar" lang="ar" dir="rtl" autocomplete="off"></label>';
+}
+let strokes=[];
+function mountCanvas(){
+ const c=$('#canvas');
+ if(!c)return;
+ strokes=[];
+ const ctx=c.getContext('2d');
+ const point=e=>{const r=c.getBoundingClientRect();return [(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height];};
+ c.addEventListener('pointerdown',e=>{c.setPointerCapture(e.pointerId);strokes.push([point(e)]);paint();});
+ c.addEventListener('pointermove',e=>{if(c.hasPointerCapture(e.pointerId)&&strokes.length){strokes.at(-1).push(point(e));paint();}});
+ function paint(){
+  ctx.clearRect(0,0,c.width,c.height);ctx.strokeStyle='#593e99';ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=5;ctx.lineCap='round';ctx.lineJoin='round';
+  for(const points of strokes){
+   ctx.beginPath();ctx.moveTo(...points[0]);
+   if(points.length===1){ctx.arc(...points[0],2.5,0,Math.PI*2);ctx.fill();}
+   else{for(const p of points.slice(1))ctx.lineTo(...p);ctx.stroke();}
+  }
+ }
+ c.paint=paint;
+}
+function writingPage(){
+ const list=lessons.flatMap(x=>x.items),item=list[writing.index]||list[0];
+ return intro('Writing Lab','Trace a letter, write a word or try dictation. Compare your work with the guide to check it yourself.')+'<div class="panel activity"><div class="row">'+btn('Tracing','writingmode:trace',writing.dictation?'outline':'subtle')+btn('Dictation','writingmode:dictation',writing.dictation?'subtle':'outline')+btn('Previous exercise','writingprev','outline')+btn('Next exercise','writingnext','outline')+'</div><p>Exercise '+(writing.index+1)+' of '+list.length+'</p>'+(writing.dictation?soundButtons(item.ar)+btn('Reveal guide','reveal-writing','subtle small'):'<p>'+ar(item.ar)+' · '+escape(item.en)+'</p>')+canvas(writing.dictation&&!writing.reveal?'':item.ar)+'<div class="row keypad" aria-label="Arabic keyboard">'+alphabetLetters.map(x=>btn(ar(x),'key:'+encodeURIComponent(x),'outline small')).join('')+btn('Space','key:%20','outline small')+'</div>'+btn('Save self-assessment','save-writing:'+item.id)+'</div>';
+}
+function videosPage(){
+ if(!args[0])return intro('Video Learning Centre','Watch original narrated slide lessons at your own pace, then check your understanding.')+'<div class="grid">'+worlds.map((world,i)=>{const lesson=lessons.find(x=>x.world===i);return card(icon('video'),world[0],escape(lesson.title)+' · '+(lesson.items.length*6)+' seconds',link('Watch lesson','videos/'+lesson.id,'subtle'),world[3]);}).join('')+'</div>';
+ const lesson=lessons.find(x=>x.id===args[0]);
+ if(!lesson)return intro('Video unavailable','Choose another video lesson.');
+ if(video?.id!==lesson.id)video={id:lesson.id,index:0,visited:new Set(),running:false};
+ const item=lesson.items[video.index];
+ return '<section class="panel activity">'+link('All video lessons','videos','outline small')+'<p class="meta">Slide '+(video.index+1)+' of '+lesson.items.length+'</p><h2>'+escape(lesson.title)+'</h2><div class="video-stage"><bdi class="ar big" dir="rtl" lang="ar">'+escape(item.ar)+'</bdi><strong>'+escape(item.en)+'</strong><span>'+escape(item.say)+'</span></div><div class="row keypad">'+btn(video.running?'Pause slides':'Play slides','video-play','subtle')+btn('Previous slide','video-prev','outline')+btn('Next slide','video-next','outline')+soundButtons(item.ar)+'</div><p>Captions stay on screen. You can read through each slide at your own pace.</p>'+(video.visited.size===lesson.items.length?btn('Take knowledge check','start:video:'+lesson.id):'')+'</section>';
+}
+function revision(){
+ const words=lessons.flatMap(x=>x.items);
+ const due=state.mastery.filter(x=>x.due<=Date.now()).sort((a,b)=>b.misses-a.misses);
+ return intro('Revision','Revisit difficult words and practise at your own pace.')+'<div class="grid two">'+card('↻','Daily revision mission',due.length+' items due for review. '+(state.mastery.length?'Your practice history guides the mission.':'Study a lesson to personalise future reviews.'),btn('Start revision','start:revision:today'))+card('▤','My Study Materials',state.study.length+' lessons in your learning history.',link('Open materials','materials','subtle'),'mint')+'</div><div class="panel" style="margin-top:16px"><h2>Words to revisit</h2>'+(due.length?due.slice(0,12).map(x=>{const word=words.find(w=>w.id===x.word);return word?'<p>'+ar(word.ar)+' · '+escape(word.en)+'</p>':'';}).join(''):'<p>No words due for review yet.</p>')+'</div>';
+}
+function progressPage(){
+ const stats=[['⚡','Total XP',state.xp],['◇','Gems earned',state.activity.reduce((a,b)=>a+Math.max(0,b.gems),0)],['🔥','Current streak',state.streak+(state.streak===1?' day':' days')],['✦','Longest streak',state.longest+(state.longest===1?' day':' days')],['▤','Lessons completed',state.completed.length],['✓','Words mastered',state.mastery.filter(x=>x.hits>=3).length],['✎','Writing exercises',state.activity.filter(x=>x.kind==='writing').length],['▶','Video checks',state.activity.filter(x=>x.kind==='video').length],['♜','Worlds completed',state.bosses.length]];
+ const days=Array.from({length:7},(_,i)=>new Date(Date.now()-(6-i)*86400000));
+ return intro('My Progress','See what you’ve learned and find your next practice activity.')+records()+'<div class="row keypad">'+link('Progress report','report','outline small')+(state.achievements.some(x=>x[2])?link('Achievement certificate','report/certificate','outline small'):'')+'</div>'+'<div class="grid">'+stats.map(([s,t,n])=>card(s,t,n)).join('')+'</div><div class="grid two" style="margin-top:15px">'+levelPanel()+'<section class="panel"><h3>Last 7 days</h3><p>'+state.completed.length+' of '+lessons.length+' lessons completed</p>'+progress(state.completed.length*100/lessons.length,'Curriculum progress')+'<div class="week">'+days.map(day=>'<span class="day '+(state.days.includes(day.toISOString().slice(0,10))?'done':'')+'" title="'+day.toISOString().slice(0,10)+'">'+day.toLocaleDateString('en',{weekday:'short',timeZone:'UTC'})+'</span>').join('')+'</div></section></div><section class="panel" style="margin-top:15px"><h3>Weekly quest</h3><p>Complete five lessons this week · '+Math.min(state.weeklyCount,5)+' / 5</p>'+progress(state.weeklyCount*20,'Weekly quest')+'</section><div class="panel" style="margin-top:15px"><div class="heading"><h2>Recent activity</h2><a href="#materials">My Study Materials</a></div>'+(state.activity.filter(x=>x.kind!=='answer').slice(0,12).map(x=>'<p>'+escape(lessons.find(l=>l.id===x.target)?.title||(['game','boss'].includes(x.kind)?(x.kind==='game'?games[x.target]?.[0]:worlds[x.target]?.[0]):null)||x.kind)+' · '+x.at.slice(0,10)+(x.score===null?'':' · '+x.score+'%')+'</p>').join('')||'<p>Your completed activities will appear here.</p>')+link('Review difficult words','revision','subtle small')+'</div><section class="panel" style="margin-top:15px"><h3>Classroom leaderboards</h3><div id="class-rankings"><p>Loading classroom rankings…</p></div></section>';
+}
+function materials(){
+ const list=state.study.map(x=>({...x,entry:lessons.find(l=>l.id===x.lesson)})).filter(x=>x.entry).filter(x=>(!filters.world||String(x.entry.world)===filters.world)&&(!filters.status||(state.completed.includes(x.lesson)?'Completed':'In progress')===filters.status));
+ return intro('My Study Materials','Reopen any lesson you’ve studied.')+'<form id="filters" class="panel row"><label>Category<select name="world"><option value="">All worlds</option>'+worlds.map((x,i)=>'<option value="'+i+'" '+(filters.world===String(i)?'selected':'')+'>'+x[0]+'</option>').join('')+'</select></label><label>Status<select name="status"><option value="">Any status</option>'+opts(['Completed','In progress'],filters.status)+'</select></label><button class="btn subtle">Apply filters</button></form><div class="grid" style="margin-top:15px">'+(list.map(({entry,at,lesson})=>card('▤',escape(entry.title),worlds[entry.world][0]+' · '+(state.completed.includes(lesson)?'Completed':'In progress')+' · '+at.slice(0,10),link('Reopen lesson','lesson/'+lesson,'subtle small'))).join('')||'<p>No lessons match these filters.</p>')+'</div>';
+}
+function rewards(){
+ return intro('Rewards','Spend earned LUGHA Gems on your favourite cosmetics. Balance '+state.gems+' gems.')+'<div class="grid">'+cosmetics.map(([title,cost,symbol],i)=>card(symbol,title,state.profile.equipped===i?'Equipped':state.inventory.includes(i)?'Owned':cost+' gems',state.profile.equipped===i?'':btn(state.inventory.includes(i)?'Equip':'Unlock and equip','shop:'+i,'subtle small'))).join('')+'</div><h2 style="margin:21px 0 12px">Achievements</h2><div class="grid">'+state.achievements.map(([title,description,done])=>card('<span class="badge '+(done?'celebrate':'disabled-badge')+'">'+(done?'🏅':'☆')+'</span>',title,description+' · '+(done?'Earned':'Locked'))).join('')+'</div>';
+}
+function preferenceForm(onboarding=false){
+ const p=state.profile;
+ const select=(title,name,values)=>'<label>'+title+'<select name="'+name+'">'+opts(values,String(p[name]))+'</select></label>';
+ const number=(title,name,min,max,step)=>'<label>'+title+'<input type="number" name="'+name+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[name]+'"></label>';
+ const check=(title,name)=>'<label class="check"><input type="checkbox" name="'+name+'" '+(p[name]?'checked':'')+'>'+title+'</label>';
+ return '<form id="preferences"><label>Display name<input name="name" maxlength="32" required value="'+escape(p.name)+'"></label><div class="grid two">'+select('Arabic proficiency','level',['Complete Beginner','Beginner','Intermediate','Advanced'])+select('Daily target (minutes)','minutes',['5','10','15','20'])+select('Learning mode','mode',['Normal','Special','Dyslexia'])+select('Colour theme','theme',['Light','Dark','Cream','High contrast'])+select('Avatar','avatar',['🦊','🌟','🌙','🐪','🌵'])+'</div><label>Learning goal<input name="goal" maxlength="80" value="'+escape(p.goal)+'"></label>'+(!onboarding?'<h3>Accessibility</h3><div class="grid two">'+number('English text size (%)','english',85,145,1)+number('Arabic text size (%)','arabic',85,175,1)+number('Line spacing','spacing',1.3,2.3,.05)+number('Speech speed','speed',.5,1.25,.05)+'</div>'+check('Reduce motion','motion')+check('Speak activity instructions when possible','audioInstructions')+check('Play answer sounds','sound')+check('Share an anonymous alias and XP in enabled classrooms','leaderboard'):'')+'<button class="btn">'+(onboarding?'Start my adventure':'Save preferences')+'</button></form>';
+}
+function settingsPage(){
+ return intro('Settings','Make LUGHA work the way you learn best.')+'<div class="grid two"><section class="panel">'+(!state.profile.onboarded?btn('Open guided setup','onboarding','subtle small')+'<p></p>':'')+preferenceForm()+'<p></p>'+btn('Take optional placement quiz','start:placement:quiz','outline small')+'</section><div class="stack"><section class="panel"><h3>Account</h3><p>'+(state.guest?'Save your guest progress to an email account to use it on another device.':'Your learning history is saved to your account.')+'</p><div class="row">'+(state.guest?btn('Sign in or register','account'):btn('Sign out','logout','outline'))+'</div></section><section class="panel"><h3>Classroom</h3><p>Enter the joining code provided by your teacher.</p><form id="join-form"><label>Joining code<input name="code" required maxlength="20"></label><button class="btn subtle">Join classroom</button></form>'+(assignments.length?'<h3>Assignments</h3>'+assignments.map(x=>'<p>'+escape(x.title)+' · '+escape(x.name)+' '+link(x.lesson.startsWith('arcade/')?'Play mission':'Open lesson',x.lesson.startsWith('arcade/')?escape(x.lesson):'lesson/'+escape(x.lesson),'outline small')+'</p>').join(''):'')+'</section></div></div>';
+}
+function tutorPage(){
+ const [title,prompt,reply]=scenes[tutor.scene];
+ const enabled=state.ai&&!state.guest;
+ return intro('Practise with Layla','Choose a real-life situation and practise Modern Standard Arabic.')+'<div class="grid two"><section class="panel"><div class="layla" aria-label="Layla, your Arabic teacher" role="img">👩🏽‍🏫</div><h2 style="margin-top:10px">Layla</h2><p>'+(enabled?'Gemini is configured. Begin an AI conversation or choose Guided Practice.':state.ai?'Sign in to use the AI tutor. Guided Practice is available now.':'AI tutor setup required. Add a Gemini API key on the server to enable AI conversations.')+'</p><label>Conversation scenario<select id="scene">'+scenes.map(([name],i)=>'<option value="'+i+'" '+(i===tutor.scene?'selected':'')+'>'+name+'</option>').join('')+'</select></label><p class="meta">Microphone transcription is provided by your browser and may use its speech service. LUGHA stores no audio recordings. Keep names and contact details out of AI messages.</p></section><section class="panel"><h3>'+(tutor.ai?'AI conversation':'Guided Practice · non-AI')+'</h3><p>'+title+'</p><div class="row">'+(enabled&&!tutor.active?btn('Start AI conversation','tutorai'):'')+(tutor.active?btn('End conversation','endtutor','outline small'):btn('Start Guided Practice','guided','subtle'))+'</div>'+(tutor.active?(tutor.ai?'<div class="chat" role="log">'+(tutor.history.map(x=>'<div class="bubble '+(x.role==='user'?'user':'')+'" dir="auto">'+escape(x.text)+'</div>').join('')||'<p>Ask Layla a question or say hello to begin.</p>')+'</div><form id="chat-form"><label>Your message<input id="tutor-input" name="message" maxlength="600" required></label><div class="row"><button class="btn">Send</button>'+btn('Use microphone','mic','outline')+(tutor.history.findLast(x=>x.role==='model')?btn('Replay response','speak:'+encodeURIComponent(tutor.history.findLast(x=>x.role==='model').text.match(/[\p{Script=Arabic}\p{Mark} ،؟.!]+/gu)?.filter(x=>/\p{Script=Arabic}/u.test(x)).join(' ')||''),'outline'):'')+'</div></form>':'<div class="bubble" style="margin-top:12px">'+ar(prompt)+'</div><div class="row keypad">'+soundButtons(prompt)+btn('Show example reply','tutoranswer','subtle small')+'</div>'+(tutor.reveal?'<div class="bubble">'+ar(reply)+'</div>'+soundButtons(reply):'')+'<p>Say your reply aloud or check what the browser transcribes.</p><label>Your reply<input id="tutor-input" lang="ar" dir="rtl"></label><div class="row keypad">'+btn('Use microphone','mic','outline')+'</div>'):'')+'</section></div>';
+}
+function teacherPage(){
+ return schoolLogo()+intro('Classrooms','Create a private classroom, assign lessons and view participation.')+'<div class="grid two"><section class="panel"><form id="class-create"><label>Classroom name<input name="name" maxlength="60" required></label><button class="btn">Create classroom</button></form></section><section class="panel" id="class-list"><p>Loading classrooms…</p></section></div><div id="class-detail"></div>';
+}
+async function loadClasses(){
+ const rooms=await api('classrooms');
+ if(!$('#class-list'))return;
+ $('#class-list').innerHTML=rooms.length?rooms.map(x=>'<p>'+escape(x.name)+' '+btn('Open','room:'+x.id,'outline small')+'</p>').join(''):'<p>You have no classrooms yet.</p>';
+}
+async function showRoom(room){
+ const [report,rooms]=await Promise.all([api('classroom/report',{room}),api('classrooms')]);
+ const visible=rooms.find(x=>x.id===room)?.visible;
+ const node=$('#class-detail');
+ if(!node)return;
+ node.innerHTML='<div class="panel" style="margin-top:14px"><h2>Classroom report</h2><p>Join code <strong>'+escape(room)+'</strong></p><form id="assign-form"><input type="hidden" name="room" value="'+escape(room)+'"><label>Assignment name<input name="title" maxlength="80"></label><label>Lesson or arcade mission<select name="lesson">'+lessons.map(x=>'<option value="'+x.id+'">'+escape(x.title)+'</option>').join('') +Object.entries(cabinets).map(([key,g])=>'<option value="arcade/'+key+'">'+g.title+'</option>').join('')+'</select></label><button class="btn">Assign activity</button></form><div class="table-wrap"><table><thead><tr><th>Learner alias</th><th>XP</th><th>Lessons</th></tr></thead><tbody>'+report.map(x=>'<tr><td>'+escape(x.alias)+'</td><td>'+x.xp+'</td><td>'+x.lessons+'</td></tr>').join('')+'</tbody></table></div>'+btn('Export CSV','export:'+room,'outline small')+' '+btn(visible?'Hide classroom leaderboard':'Enable classroom leaderboard','visibility:'+room+':'+(visible?'no':'yes'),'outline small')+'</div>';
+}
+function adminPage(){
+ return intro('Content Studio','Create and edit lesson vocabulary and review registered account roles.')+'<section class="panel"><form id="content-form"><label>Edit a lesson<select name="existing" id="existing"><option value="">New lesson</option>'+lessons.map(x=>'<option value="'+x.id+'">'+escape(x.title)+'</option>').join('')+'</select></label><label>Lesson name<input name="title" required maxlength="120"></label><label>World<select name="world">'+worlds.map((x,i)=>'<option value="'+i+'">'+x[0]+'</option>').join('')+'</select></label><label>Vocabulary (one line per item, using Arabic | English | transliteration)<textarea required name="items"></textarea></label><button class="btn">Save lesson</button></form><div id="accounts"></div></section>';
+}
+function account(){
+ dialog.innerHTML=schoolLogo()+'<div class="heading"><h2>Your LUGHA account</h2>'+btn('Close','closedialog','outline small')+'</div><form id="account-form"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" minlength="10" maxlength="128" autocomplete="current-password" required></label><div class="row"><button class="btn" name="intent" value="login">Sign in</button><button class="btn subtle" name="intent" value="register">Register</button></div></form>';
+ if(!dialog.open)dialog.showModal();
+}
+function onboarding(){
+ dialog.innerHTML='<div class="heading"><h2>Set up your adventure</h2>'+btn('Close','closedialog','outline small')+'</div><p>Choose the way you want to learn. You can change these preferences later.</p>'+preferenceForm(true);
+ if(!dialog.open)dialog.showModal();
+}
+function render(){
+ if(!state)return;
+ apply();chrome();
+ const views={home,adventure:()=>intro('The World of LUGHA','Complete each world’s lessons and boss challenge to unlock the next stop.')+'<div class="panel world-list">'+worlds.map(worldRow).join('')+'</div>',world:worldPage,lesson:lessonPage,games:gameGrid,game:gamePage,arcade:arcadePage,about,report,activity:activityPage,tutor:tutorPage,writing:writingPage,videos:videosPage,revision,progress:progressPage,materials,rewards,settings:settingsPage,teacher:state.role==='teacher'?teacherPage:null,admin:state.role==='admin'?adminPage:null,more:()=>intro('Explore LUGHA','Find a learning activity or manage your account.')+'<div class="grid two">'+nav.concat(state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]).map(([url,title,symbol])=>link(icon(symbol)+' '+title,url,'outline')).join('')+'</div>'};
+ disposeArcade();
+ main.innerHTML=(Object.hasOwn(views,route)&&views[route]||home)();
+ mountCanvas();
+ if(route==='arcade'&&gameRun&&!gameRun.done)disposeArcade=mountArcade(main,{gameRun,profile:state.profile,api,notify,onFinish(result){state=result.state;render();}});
+ if(route==='progress')api('classroom-rankings').then(list=>{
+  const target=$('#class-rankings');
+  if(!target)return;
+  target.innerHTML=list.length?list.map(row=>'<p>'+escape(row.name)+' · Learner '+escape(row.alias)+' · '+row.xp+' XP</p>').join(''):'<p>No shared classroom rankings are available.</p>';
+ }).catch(e=>{if($('#class-rankings'))$('#class-rankings').textContent=e.message;});
+ if(route==='teacher')loadClasses().catch(e=>notify(e.message));
+ if(route==='admin')api('admin').then(list=>{if($('#accounts'))$('#accounts').innerHTML='<h3 style="margin-top:14px">Registered accounts</h3>'+list.map(x=>'<p>'+escape(x.email)+' · '+escape(x.role)+'</p>').join('');}).catch(e=>notify(e.message));
+}
+function stopAudio(){window.speechSynthesis?.cancel();playing=null;}
+function speak(value,language='ar',quiet=false){
+ if(!value||!('speechSynthesis' in window)){notify('Arabic speech is unavailable on this device.');return;}
+ const voice=speechSynthesis.getVoices().find(x=>x.lang.toLowerCase().split(/[-_]/)[0]===language);
+ if(!voice){if(!quiet)notify('No Arabic voice is installed. Add an Arabic voice in your device settings to use audio.');return;}
+ stopAudio();
+ playing=new SpeechSynthesisUtterance(value);playing.voice=voice;playing.lang=voice.lang;playing.rate=state.profile.speed;
+ playing.onstart=()=>$('.layla')?.classList.add('talking');
+ playing.onend=()=>$('.layla')?.classList.remove('talking');
+ playing.onerror=e=>{if(!['canceled','interrupted'].includes(e.error))notify('Arabic audio could not play.');$('.layla')?.classList.remove('talking');};
+ speechSynthesis.speak(playing);
+}
+function mic(){
+ const Speech=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!Speech){notify('Microphone transcription is unavailable in this browser. You can type your reply.');return;}
+ if(recognition){recognition.stop();return;}
+ if(!window.confirm('Allow microphone transcription for this reply? Your browser may send audio to its speech service.'))return;
+ stopAudio();
+ recognition=new Speech();recognition.lang='ar-AE';
+ recognition.onresult=e=>{if($('#tutor-input'))$('#tutor-input').value=e.results[0][0].transcript;};
+ recognition.onerror=e=>notify(e.error==='not-allowed'?'Microphone permission was declined. You can type your reply.':'Transcription could not start. You can type your reply.');
+ recognition.onend=()=>{recognition=null;$('.layla')?.classList.remove('talking');};
+ try{recognition.start();$('.layla')?.classList.add('talking');notify('Listening for Arabic…');}catch{recognition=null;notify('The microphone could not start.');}
+}
+function putText(input,value){
+ if(!input)return;
+ input.setRangeText(value,input.selectionStart??input.value.length,input.selectionEnd??input.value.length,'end');
+ input.focus();
+}
+function prepareSound(){
+ if(!state?.profile.sound||!window.AudioContext)return;
+ earcons ||= new AudioContext();
+ if(earcons.state==='suspended')earcons.resume().catch(()=>{});
+}
+function playFeedback(correct){
+ if(!earcons||!state.profile.sound||earcons.state!=='running')return;
+ const oscillator=earcons.createOscillator(),gain=earcons.createGain(),now=earcons.currentTime;
+ oscillator.frequency.setValueAtTime(correct?520:275,now);
+ oscillator.frequency.linearRampToValueAtTime(correct?660:240,now+.12);
+ gain.gain.setValueAtTime(.05,now);
+ gain.gain.exponentialRampToValueAtTime(.001,now+.15);
+ oscillator.connect(gain).connect(earcons.destination);
+ oscillator.start(now);oscillator.stop(now+.15);
+}
+async function answer(value){
+ prepareSound();
+ const r=round;
+ const reply=await api('answer',{id:r.id,position:r.position,answer:value});
+ r.correct=reply.correct;
+ r.combo=reply.correct?r.combo+1:0;
+ r.bestCombo=Math.max(r.bestCombo,r.combo);
+ playFeedback(reply.correct);
+ if(reply.finished){r.score=reply.score;r.position=r.total;r.earned=reply.earned;r.recommendation=reply.recommendation;state=reply.state;}
+ else if(reply.next){Object.assign(r,{next:reply.next,position:reply.position,order:[],pairs:[],selected:[],feedback:!reply.correct?'Answer recorded.':r.combo>=3?'Combo ×'+r.combo+'! Keep it going.':'Correct! Keep going.'});}
+ else {r.feedback='That choice didn’t work. Take your time and try again.';}
+ if(round===r&&route==='activity'){render();main.focus({preventScroll:true});}
+}
+function slide(next=0){
+ if(!video||route!=='videos'||!args[0])return;
+ const lesson=lessons.find(x=>x.id===video.id);
+ video.index=Math.min(lesson.items.length-1,Math.max(0,video.index+next));
+ video.visited.add(video.index);
+ render();
+ if(video.running){
+  speak(lesson.items[video.index].ar);
+  clearTimeout(tracking);
+  tracking=setTimeout(()=>{
+   if(video.index===lesson.items.length-1){video.running=false;render();}
+   else slide(1);
+  },6000);
+ }
+}
+function routeChange(){
+ if(video)video.running=false;
+ clearTimeout(tracking);stopAudio();recognition?.abort();
+ [route,...args]=(location.hash.slice(1)||'home').split('/');
+ if(route!=='arcade'||gameRun?.config.game!==args[0])gameRun=null;
+ if(route==='settings')api('assignments').then(list=>{assignments=list;if(route==='settings'&&!document.activeElement?.closest('form'))render();}).catch(()=>{});
+ render();main.focus({preventScroll:true});
+}
+async function action(name,raw){
+ switch(name){
+  case 'account':account();return;
+  case 'arcadereset':gameRun=null;render();return;
+  case 'print':window.print();return;
+  case 'onboarding':onboarding();return;
+  case 'placementlevel':state=await api('settings',{level:round.recommendation});location.hash='settings';return;
+  case 'profile':location.hash='settings';return;
+  case 'closedialog':dialog.close();return;
+  case 'logout':await api('logout',{});state=await api('guest',{});location.hash='home';render();account();return;
+  case 'meaning':study.meaning=!study.meaning;break;
+  case 'example':study.example=!study.example;break;
+  case 'study':study.cursor+=Number(raw);study.meaning=study.example=false;stopAudio();break;
+  case 'start':{const [kind,target]=raw.split(':');await start(kind,target);return;}
+  case 'replay':await start(round.kind,round.target,round.difficulty,round.visual);return;
+  case 'speak':speak(decodeURIComponent(raw));return;
+  case 'pause':if(window.speechSynthesis?.paused)speechSynthesis.resume();else if(window.speechSynthesis?.speaking)speechSynthesis.pause();return;
+  case 'answer':await answer(round.next.options[Number(raw)]);return;
+  case 'visualgame':await start('game',4,round.difficulty,true);return;
+  case 'order':if(!round.order.includes(Number(raw)))round.order.push(Number(raw));break;
+  case 'undoorder':round.order.pop();break;
+  case 'checkorder':await answer(round.order.map(i=>round.next.options[i]).join(round.next.join));return;
+  case 'memory':
+   round.selected.push(Number(raw));
+   if(round.selected.length===2){round.pairs.push(round.selected);round.selected=[];}
+   break;
+  case 'resetmemory':round.pairs=[];round.selected=[];break;
+  case 'checkmemory':await answer(JSON.stringify(round.pairs.map(pair=>pair.map(i=>round.next.options[i]).sort().join('|')).sort()));return;
+  case 'undo-stroke':strokes.pop();$('#canvas')?.paint();return;
+  case 'clear-stroke':strokes=[];$('#canvas')?.paint();return;
+  case 'trace-answer':
+   if(!strokes.length&&!$('#typed-ar')?.value.trim())throw Error('Trace the model or enter your writing first.');
+   await answer('I reviewed my work');return;
+  case 'key':putText($('#typed-ar'),decodeURIComponent(raw));return;
+  case 'writingprev':writing.index=Math.max(0,writing.index-1);writing.reveal=false;break;
+  case 'writingnext':writing.index=Math.min(lessons.flatMap(x=>x.items).length-1,writing.index+1);writing.reveal=false;break;
+  case 'writingmode':writing.dictation=raw==='dictation';writing.reveal=false;break;
+  case 'reveal-writing':writing.reveal=true;{const guide=$('.trace-guide');guide.textContent=lessons.flatMap(x=>x.items)[writing.index].ar;}return;
+  case 'save-writing':{
+   if(!strokes.length&&!$('#typed-ar')?.value.trim())throw Error('Write something before saving your self-assessment.');
+   const attempt=await api('attempt',{kind:'writing',target:raw});
+   const result=await api('answer',{id:attempt.id,position:0,answer:'I reviewed my work'});
+   state=result.state;notify('Writing practice saved.');break;
+  }
+  case 'video-play':video.running=!video.running;if(!video.running){clearTimeout(tracking);stopAudio();break;}slide();return;
+  case 'video-prev':slide(-1);return;
+  case 'video-next':slide(1);return;
+  case 'shop':state=await api('shop',{item:Number(raw)});notify('Cosmetic equipped.');break;
+  case 'guided':tutor={scene:tutor.scene,history:[],active:true,ai:false,reveal:false};break;
+  case 'tutorai':tutor={scene:tutor.scene,history:[],active:true,ai:true};break;
+  case 'endtutor':stopAudio();recognition?.abort();tutor={scene:tutor.scene,history:[],active:false,ai:false};break;
+  case 'tutoranswer':tutor.reveal=!tutor.reveal;break;
+  case 'mic':mic();return;
+  case 'room':await showRoom(raw);return;
+  case 'visibility':{const [room,enabled]=raw.split(':');await api('classroom/visibility',{room,visible:enabled==='yes'});await showRoom(room);notify('Leaderboard visibility updated.');return;}
+  case 'export':{
+   const report=await api('classroom/report',{room:raw});
+   const href=URL.createObjectURL(new Blob(['Learner alias,XP,Lessons\n'+report.map(x=>[x.alias,x.xp,x.lessons].join(',')).join('\n')],{type:'text/csv'}));
+   const a=document.createElement('a');a.href=href;a.download='lugha-classroom.csv';a.click();setTimeout(()=>URL.revokeObjectURL(href),1000);return;
+  }
+  default:return;
+ }
+ render();
+}
+document.addEventListener('click',async event=>{
+ const control=event.target.closest('[data-action]');
+ if(!control||busy)return;
+ const [name,...parts]=control.dataset.action.split(':');
+ busy=true;
+ try{await action(name,parts.join(':'));}catch(e){notify(e.message);}finally{busy=false;}
+});
+document.addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(busy)return;
+ busy=true;
+ const form=event.target, data=Object.fromEntries(new FormData(form,event.submitter));
+ try{
+  switch(form.id){
+   case 'preferences':{
+    const first=dialog.contains(form);
+    for(const key of ['minutes','english','arabic','spacing','speed'])if(key in data)data[key]=Number(data[key]);
+    for(const check of form.querySelectorAll('input[type=checkbox]'))data[check.name]=check.checked;
+    state=await api('settings',{...data,onboarded:true});
+    if(first)dialog.close();
+    render();notify('Preferences saved.');break;
+   }
+   case 'account-form':
+    state=await api(data.intent||'login',{email:data.email,password:data.password});
+    dialog.close();render();if(!state.profile.onboarded)onboarding();else notify('Welcome, '+state.profile.name+'!');break;
+   case 'arcade-start':{
+    const name=args[0],world=data.world===''?null:Number(data.world);
+    const result=await api('arcade/start',{game:name,difficulty:data.difficulty,world,assist:data.assist==='on'});
+    if(route==='arcade'&&args[0]===name){gameRun=result;render();}
+    break;
+   }
+   case 'game-form':await start('game',args[0],data.difficulty,data.format==='Text');break;
+   case 'filters':filters=data;render();break;
+   case 'join-form':await api('join',data);assignments=await api('assignments');render();notify('Classroom joined.');break;
+   case 'class-create':{const result=await api('classroom/create',data);form.reset();await loadClasses();await showRoom(result.code);notify('Classroom created.');break;}
+   case 'assign-form':await api('classroom/assign',data);notify('Activity assigned.');break;
+   case 'content-form':{
+    const id=data.existing||'l'+crypto.randomUUID().replace(/-/g,'').slice(0,18);
+    const items=data.items.split('\n').filter(line=>line.trim()).map(line=>{const [ar,en,say]=line.split('|').map(x=>x.trim());return {ar,en,say};});
+    lessons=await api('admin/lesson',{lesson:{id,title:data.title,world:Number(data.world),items}});render();notify('Lesson saved.');break;
+   }
+   case 'chat-form':{
+    const message=data.message.trim();if(!message)return;
+    const session=tutor;
+    const history=[...session.history,{role:'user',text:message}];
+    const submit=event.submitter;
+    if(submit){submit.disabled=true;submit.textContent='Waiting for Layla…';}
+    try{
+     const {reply}=await api('tutor',{scene:session.scene,history});
+     session.history=[...history,{role:'model',text:reply}];
+     if(tutor===session&&route==='tutor'){
+      render();$('.chat')?.lastElementChild?.scrollIntoView({block:'nearest'});
+      const arabic=reply.match(/[\p{Script=Arabic}\p{Mark} ،؟.!]+/gu)?.filter(x=>/\p{Script=Arabic}/u.test(x)).join(' ');
+      if(arabic)speak(arabic);
+     }
+    }finally{if(submit){submit.disabled=false;submit.textContent='Send';}}
+    break;
+   }
+  }
+ }catch(e){notify(e.message);}finally{busy=false;}
+});
+document.addEventListener('change',event=>{
+ const {id,value}=event.target;
+ if(id==='scene'){tutor={scene:Number(value),history:[],active:false,ai:false};stopAudio();render();}
+ if(id==='existing'){
+  const lesson=lessons.find(x=>x.id===value),form=event.target.form;
+  form.elements.title.value=lesson?.title||'';
+  form.elements.world.value=lesson?.world||0;
+  form.elements.items.value=lesson?.items.map(x=>[x.ar,x.en,x.say].join(' | ')).join('\n')||'';
+ }
+});
+window.addEventListener('hashchange',routeChange);
+async function init(){
+ try{
+  [state,lessons,branding]=await Promise.all([api('state'),api('content'),api('branding')]);
+  if(!state)state=await api('guest',{});
+  routeChange();
+ }catch(e){main.innerHTML='<section class="panel"><h1>LUGHA could not start</h1><p>'+escape(e.message)+'</p><a class="btn" href="/">Retry</a></section>';}
+}
+init();
+
+
+
+
+
+
+
+
+
+
+
