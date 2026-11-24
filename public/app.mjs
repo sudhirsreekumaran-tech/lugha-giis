@@ -1,3 +1,4 @@
+import { createPreview } from './ui-preview.mjs';
 import { cabinets,difficulty } from './arcade-engine.mjs';
 import { mountArcade } from './arcade-ui.mjs';
 import { worlds,games,scenes,ranks,cosmetics,alphabetLetters } from './content.mjs';
@@ -18,9 +19,10 @@ const intro=(title,desc)=>'<div class="section-intro"><h1>'+title+'</h1><p>'+des
 const progress=(value,label)=>'<div class="progress" role="progressbar" aria-label="'+escape(label)+'" aria-valuenow="'+Math.round(Math.min(100,Math.max(0,value)))+'" aria-valuemin="0" aria-valuemax="100"><i style="width:'+Math.max(0,Math.min(100,value))+'%"></i></div>';
 const card=(symbol,title,desc,control='',color='lavender')=>'<article class="panel card"><div class="tile-icon '+color+'">'+symbol+'</div><h3>'+title+'</h3><p>'+desc+'</p>'+control+'</article>';
 let state,lessons=[],route='home',args=[],round,study,toastTimer,playing,recognition,tracking=0, busy=false;
-let earcons, gameRun, disposeArcade=()=>{}, branding={logo:false};
+let preview, earcons, gameRun, disposeArcade=()=>{}, branding={logo:false};
 let tutor={scene:0,history:[],active:false,ai:false},video=null,writing={index:0,dictation:false},filters={},assignments=[];
 async function api(path,data){
+ if(preview)return preview.request(path,data);
  const res=await fetch('/api/'+path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
  const payload=await res.json();
  if(!res.ok)throw Object.assign(Error(payload.error||'Please try again.'),{status:res.status});
@@ -43,7 +45,7 @@ function chrome(){
  $('#mobile').innerHTML=links([nav[0],nav[1],nav[2],nav[3],['more','More','more']]);
  $('#topbar').innerHTML='<div class="top-heading">'+schoolLogo('header-logo')+'<span class="crumb">'+escape(nav.find(x=>x[0]===route)?.[1]||({world:'Adventure',lesson:'Adventure',activity:'Practice',materials:'Study Materials',teacher:'Classrooms',admin:'Content Studio',more:'Explore'})[route]||'LUGHA')+'</span></div><div class="top-stats"><a href="#progress" class="chip" aria-label="'+state.streak+' day streak"><span class="fire">'+icon('flame')+'</span>'+state.streak+'</a><a href="#rewards" class="chip" aria-label="'+state.gems+' gems"><span class="gem">'+icon('gem')+'</span>'+state.gems+'</a><a href="#progress" class="chip"><span class="xp">'+icon('bolt')+'</span>'+state.xp+' XP</a><button class="avatar" data-action="'+(state.guest?'account':'profile')+'" aria-label="Account">'+escape(cosmetics[state.profile.equipped]?.[2]||state.profile.avatar)+'</button></div>';
 }
-function unlocked(world){return world===0||state.bosses.includes(world-1);}
+function unlocked(world){return Boolean(preview)||world===0||state.bosses.includes(world-1);}
 function recommended(){
  const next=lessons.find(x=>unlocked(x.world)&&!state.completed.includes(x.id));
  if(next)return next;
@@ -258,7 +260,8 @@ function render(){
  apply();chrome();
  const views={home,adventure:()=>intro('The World of LUGHA','Complete each world’s lessons and boss challenge to unlock the next stop.')+'<div class="panel world-list">'+worlds.map(worldRow).join('')+'</div>',world:worldPage,lesson:lessonPage,games:gameGrid,game:gamePage,arcade:arcadePage,about,report,activity:activityPage,tutor:tutorPage,writing:writingPage,videos:videosPage,revision,progress:progressPage,materials,rewards,settings:settingsPage,teacher:state.role==='teacher'?teacherPage:null,admin:state.role==='admin'?adminPage:null,more:()=>intro('Explore LUGHA','Find a learning activity or manage your account.')+'<div class="grid two">'+nav.concat(state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]).map(([url,title,symbol])=>link(icon(symbol)+' '+title,url,'outline')).join('')+'</div>'};
  disposeArcade();
- main.innerHTML=(Object.hasOwn(views,route)&&views[route]||home)();
+ const previewBanner=preview?'<aside class="panel preview-banner" aria-label="Preview mode"><strong>Guest preview</strong><span>Explore lessons and play the Arcade. Scores and settings last until you refresh.</span></aside>':'';
+ main.innerHTML=previewBanner+(Object.hasOwn(views,route)&&views[route]||home)();
  mountCanvas();
  if(route==='arcade'&&gameRun&&!gameRun.done)disposeArcade=mountArcade(main,{gameRun,profile:state.profile,api,notify,onFinish(result){state=result.state;render();}});
  if(route==='progress')api('classroom-rankings').then(list=>{
@@ -351,7 +354,7 @@ function routeChange(){
 }
 async function action(name,raw){
  switch(name){
-  case 'account':account();return;
+  case 'account':if(preview){notify('Sign-in is disabled in this preview. You can play the Arcade as a guest.');return;}account();return;
   case 'arcadereset':gameRun=null;render();return;
   case 'print':window.print();return;
   case 'onboarding':onboarding();return;
@@ -487,7 +490,14 @@ document.addEventListener('change',event=>{
 window.addEventListener('hashchange',routeChange);
 async function init(){
  try{
-  [state,lessons,branding]=await Promise.all([api('state'),api('content'),api('branding')]);
+  state=await api('state');
+  if(state?.preview){
+   preview=createPreview();
+   state=preview.state;
+   lessons=preview.lessons;
+   branding={logo:true};
+  }
+  if(!preview)[lessons,branding]=await Promise.all([api('content'),api('branding')]);
   if(!state)state=await api('guest',{});
   routeChange();
  }catch(e){main.innerHTML='<section class="panel"><img class="giis-logo" src="/giis-logo.png" alt="Global Indian International School"><h1>'+ (e.status===503?'LUGHA is temporarily unavailable':'LUGHA could not start') +'</h1><p>'+escape(e.message)+'</p><a class="btn" href="/">Retry</a></section>';}

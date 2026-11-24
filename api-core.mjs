@@ -253,6 +253,7 @@ async function teacherRoom(uid,room){
 export async function api(req,res,path){
  if(req.method==='GET'&&path==='/api/branding')return {logo:arcade.logo};
  if(process.env.VERCEL&&(!process.env.TURSO_DATABASE_URL||!process.env.TURSO_AUTH_TOKEN)){
+  if(req.method==='GET'&&path==='/api/state')return {preview:true};
   fail(503,'Saved learning is temporarily unavailable while the school database is being connected.');
  }
  await initialize();
