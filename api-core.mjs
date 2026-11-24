@@ -251,11 +251,14 @@ async function teacherRoom(uid,room){
  return found;
 }
 export async function api(req,res,path){
+ if(req.method==='GET'&&path==='/api/branding')return {logo:arcade.logo};
+ if(process.env.VERCEL&&(!process.env.TURSO_DATABASE_URL||!process.env.TURSO_AUTH_TOKEN)){
+  fail(503,'Saved learning is temporarily unavailable while the school database is being connected.');
+ }
  await initialize();
  let user=await getUser(req);
  if(req.method==='GET'){
   if(path==='/api/state')return user?state(user):null;
-  if(path==='/api/branding')return {logo:arcade.logo};
   if(path==='/api/content')return curriculum();
   if(!user)fail(401,'Sign in to continue.');
   if(path==='/api/classrooms'&&user.role==='teacher')return query('SELECT id,name,visible FROM classrooms WHERE teacher=?',user.id);
@@ -434,6 +437,3 @@ const arcade=arcadeService({
   await run('INSERT INTO mastery VALUES(?,?,?,?,?) ON CONFLICT(uid,word) DO UPDATE SET hits=excluded.hits,misses=excluded.misses,due=excluded.due',uid,word,hits,(old?.misses||0)+Number(!correct),Date.now()+(correct?Math.min(30,2**(hits-1)):0)*86400000);
  }
 });
-
-
-

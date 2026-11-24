@@ -23,7 +23,7 @@ let tutor={scene:0,history:[],active:false,ai:false},video=null,writing={index:0
 async function api(path,data){
  const res=await fetch('/api/'+path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
  const payload=await res.json();
- if(!res.ok)throw Error(payload.error||'Please try again.');
+ if(!res.ok)throw Object.assign(Error(payload.error||'Please try again.'),{status:res.status});
  return payload;
 }
 function notify(text){
@@ -490,17 +490,6 @@ async function init(){
   [state,lessons,branding]=await Promise.all([api('state'),api('content'),api('branding')]);
   if(!state)state=await api('guest',{});
   routeChange();
- }catch(e){main.innerHTML='<section class="panel"><h1>LUGHA could not start</h1><p>'+escape(e.message)+'</p><a class="btn" href="/">Retry</a></section>';}
+ }catch(e){main.innerHTML='<section class="panel"><img class="giis-logo" src="/giis-logo.png" alt="Global Indian International School"><h1>'+ (e.status===503?'LUGHA is temporarily unavailable':'LUGHA could not start') +'</h1><p>'+escape(e.message)+'</p><a class="btn" href="/">Retry</a></section>';}
 }
 init();
-
-
-
-
-
-
-
-
-
-
-
