@@ -2,6 +2,7 @@ import { tutorTopics,roleplayTopics,guidedReply } from './tutor-topics.mjs';
 import { createPreview } from './ui-preview.mjs';
 import { cabinets,difficulty } from './arcade-engine.mjs';
 import { mountArcade } from './arcade-ui.mjs';
+import { mountSmartArabic } from './smart-arabic.mjs';
 import { worlds,games,ranks,cosmetics,alphabetLetters } from './content.mjs';
 const $=selector=>document.querySelector(selector);
 const main=$('#main'), dialog=$('#dialog');
@@ -23,6 +24,7 @@ let state,lessons=[],route='home',args=[],round,study,toastTimer,playing,recogni
 let parentChildren=[],parentChild='',signInRole='student',accountRequest=0;
 let preview, earcons, gameRun, disposeArcade=()=>{}, branding={logo:false};
 let tutor={topic:null,history:[],ai:false},video=null,writing={index:0,dictation:false},filters={},assignments=[];
+let resetSmartArabic=()=>{};
 async function api(path,data){
  if(preview)return preview.request(path,data);
  const res=await fetch('/api/'+path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -487,7 +489,7 @@ async function action(name,raw){
   case 'placementlevel':state=await api('settings',{level:round.recommendation});location.hash='settings';return;
   case 'profile':location.hash='settings';return;
   case 'closedialog':dialog.close();return;
-  case 'logout':await api('logout',{});state=await api('guest',{});location.hash='home';render();account();return;
+  case 'logout':await api('logout',{});resetSmartArabic();state=await api('guest',{});location.hash='home';render();account();return;
   case 'meaning':study.meaning=!study.meaning;break;
   case 'example':study.example=!study.example;break;
   case 'study':study.cursor+=Number(raw);study.meaning=study.example=false;stopAudio();break;
@@ -587,6 +589,7 @@ document.addEventListener('submit',async event=>{
       notify('Password updated. Sign in with the new password.');
      }else{
       state=await api('login',{email:data.email,password:data.password,role:data.role,remember:data.remember==='on'});
+      resetSmartArabic();
       parentChildren=[];parentChild='';
       location.hash=({parent:'parent',teacher:'teacher',admin:'admin'})[state.role]||'home';
       routeChange();
@@ -637,6 +640,11 @@ async function init(){
   }
   if(!preview)[lessons,branding]=await Promise.all([api('content'),api('branding')]);
   if(!state)state=await api('guest',{});
+  resetSmartArabic=mountSmartArabic({
+   icon,speak,canAsk:()=>state.ai&&!state.guest&&state.role==='student',
+   inChallenge:()=>route==='activity'||route==='game'||(route==='arcade'&&gameRun&&!gameRun.done),
+   ask:history=>api('tutor',{assistant:'smartarabic',history})
+  });
   routeChange();
  }catch(e){main.innerHTML='<section class="panel"><img class="giis-logo" src="/giis-logo.png" alt="Global Indian International School"><h1>'+ (e.status===503?'LUGHA is temporarily unavailable':'LUGHA could not start') +'</h1><p>'+escape(e.message)+'</p><a class="btn" href="/">Retry</a></section>';}
 }
