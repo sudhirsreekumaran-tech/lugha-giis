@@ -7,7 +7,6 @@ const spec=[
  ['student','student','Amina (fictional)'],
  ['parent','parent','Demo parent'],
  ['teacher','teacher','Demo teacher'],
- ['admin','admin','Demo administrator'],
  ['student2','student','Kareem (fictional)']
 ];
 
@@ -24,11 +23,13 @@ async function demo(){
  const linked=await pool.query("SELECT 1 FROM auth.users WHERE false");
  if(linked.rowCount!==0)throw Error('Could not verify the Auth schema.');
  const secrets=new Map(spec.map(([name])=>[name,process.env['LUGHA_DEMO_PASSWORD_'+name.toUpperCase()]]));
- if([...secrets.values()].some(value=>!value||value.length<8))throw Error('Set all five demo passwords in the local secret environment.');
+ if([...secrets.values()].some(value=>!value||value.length<20)||new Set(secrets.values()).size!==spec.length){
+  throw Error('Set four distinct demo passwords of at least 20 characters in the local secret environment.');
+ }
  await initialize();
  const ids={};
  for(const [name,role,display] of spec){
-  const email=name+'@lugha.example';
+  const email=name+'@example.com';
   const old=await pool.query("SELECT id,raw_app_meta_data FROM auth.users WHERE lower(email)=$1",[email]);
   let authId=old.rows[0]?.id;
   if(authId&&!old.rows[0].raw_app_meta_data?.lugha_demo)throw Error('An existing account is not marked as a LUGHA demo.');
@@ -52,7 +53,7 @@ async function demo(){
   await run('INSERT OR IGNORE INTO classrooms VALUES(?,?,?,0)','DEMOCLASS',ids.teacher,'Fictional Arabic class');
   for(const uid of [ids.student,ids.student2])await run('INSERT OR IGNORE INTO members VALUES(?,?)','DEMOCLASS',uid);
  });
- console.log('Five fictional Supabase accounts and class links are ready for the protected preview.');
+ console.log('Four fictional Supabase accounts and class links are ready for the protected preview.');
  await pool.end();
 }
 demo().catch(error=>{console.error(error.code?'Provisioning failed ('+error.code+'). Check project configuration.':error.message);process.exit(1);});

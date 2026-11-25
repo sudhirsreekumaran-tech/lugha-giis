@@ -263,7 +263,15 @@ export async function api(req,res,path){
   if(req.method==='GET'&&path==='/api/state')return {preview:true};
   fail(503,'Saved learning is temporarily unavailable while the school database is being connected.');
  }
- await initialize();
+ try{
+  await initialize();
+ }catch(error){
+  if(process.env.VERCEL&&req.method==='GET'&&path==='/api/state'&&!req.headers.cookie?.includes('lugha=')){
+   console.error('School database initialization failed',error.code||error.name);
+   return {preview:true};
+  }
+  throw error;
+ }
  let user=await getUser(req);
  if(user&&(user.disabled_at||user.demo&&!demoAllowed(req.headers.host)))user=null;
  if(req.method==='GET'){
