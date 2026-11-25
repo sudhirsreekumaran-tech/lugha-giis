@@ -7,7 +7,7 @@ if(process.argv[2]==='role'){
  process.exit();
 }
 await initialize();
-const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.mjs':'app.mjs','/ui-preview.mjs':'ui-preview.mjs','/content.mjs':'content.mjs','/curriculum.mjs':'curriculum.mjs','/noor.webp':'noor.webp','/noor.png':'noor.png','/giis-logo.png':'giis-logo.png','/arcade-engine.mjs':'arcade-engine.mjs','/arcade-ui.mjs':'arcade-ui.mjs'};
+const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.mjs':'app.mjs','/tutor-topics.mjs':'tutor-topics.mjs','/ui-preview.mjs':'ui-preview.mjs','/content.mjs':'content.mjs','/curriculum.mjs':'curriculum.mjs','/noor.webp':'noor.webp','/noor.png':'noor.png','/giis-logo.png':'giis-logo.png','/arcade-engine.mjs':'arcade-engine.mjs','/arcade-ui.mjs':'arcade-ui.mjs'};
 const types={html:'text/html',css:'text/css',mjs:'text/javascript',webp:'image/webp',png:'image/png'};
 const server=createServer(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');

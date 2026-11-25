@@ -1,7 +1,8 @@
+import { tutorTopics,roleplayTopics,guidedReply } from './tutor-topics.mjs';
 import { createPreview } from './ui-preview.mjs';
 import { cabinets,difficulty } from './arcade-engine.mjs';
 import { mountArcade } from './arcade-ui.mjs';
-import { worlds,games,scenes,ranks,cosmetics,alphabetLetters } from './content.mjs';
+import { worlds,games,ranks,cosmetics,alphabetLetters } from './content.mjs';
 const $=selector=>document.querySelector(selector);
 const main=$('#main'), dialog=$('#dialog');
 const escape=value=>String(value??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[x]);
@@ -21,7 +22,7 @@ const card=(symbol,title,desc,control='',color='lavender')=>'<article class="pan
 let state,lessons=[],route='home',args=[],round,study,toastTimer,playing,recognition,tracking=0, busy=false;
 let parentChildren=[],parentChild='',signInRole='student',accountRequest=0;
 let preview, earcons, gameRun, disposeArcade=()=>{}, branding={logo:false};
-let tutor={scene:0,history:[],active:false,ai:false},video=null,writing={index:0,dictation:false},filters={},assignments=[];
+let tutor={topic:null,history:[],ai:false},video=null,writing={index:0,dictation:false},filters={},assignments=[];
 async function api(path,data){
  if(preview)return preview.request(path,data);
  const res=await fetch('/api/'+path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -234,10 +235,54 @@ function preferenceForm(onboarding=false){
 function settingsPage(){
  return intro('Settings','Make LUGHA work the way you learn best.')+'<div class="grid two"><section class="panel">'+(!state.profile.onboarded?btn('Open guided setup','onboarding','subtle small')+'<p></p>':'')+preferenceForm()+'<p></p>'+btn('Take optional placement quiz','start:placement:quiz','outline small')+'</section><div class="stack"><section class="panel"><h3>Account</h3><p>'+(state.guest?'Use a school-assigned account to keep your learning history.':'Your learning history is saved to your account.')+'</p><div class="row">'+(state.guest?btn('School sign-in','account'):btn('Sign out','logout','outline'))+'</div></section><section class="panel"><h3>Classroom</h3><p>Enter the joining code provided by your teacher.</p><form id="join-form"><label>Joining code<input name="code" required maxlength="20"></label><button class="btn subtle">Join classroom</button></form>'+(assignments.length?'<h3>Assignments</h3>'+assignments.map(x=>'<p>'+escape(x.title)+' · '+escape(x.name)+' '+link('Open assignment',assignmentRoute(x.lesson),'outline small')+'</p>').join(''):'')+'</section></div></div>';
 }
+const conversationTopics=[...tutorTopics,...roleplayTopics];
+function tutorAvatar(){
+ return '<svg viewBox="0 0 200 220" aria-hidden="true" focusable="false" class="layla-face"><path d="M22 216q7-39 49-49h58q42 10 49 49z" fill="#005baa"/><path d="M56 135q-19-12-14-46C42 53 64 27 100 27s58 26 58 62q5 34-14 46l8 45H48z" fill="#213653"/><path d="M83 151h34v32q-17 19-34 0z" fill="#bd7b58"/><ellipse cx="100" cy="103" rx="43" ry="54" fill="#dfa17c"/><path d="M55 96q-2-49 45-51 39 0 45 42-24-10-35-28-15 30-55 37z" fill="#213653"/><g class="layla-eyes" fill="#243149"><circle cx="81" cy="105" r="4"/><circle cx="119" cy="105" r="4"/></g><path d="M100 105l-4 14h7" fill="none" stroke="#b97452" stroke-width="2" stroke-linecap="round"/><path class="layla-smile" d="M87 131q13 13 26 0" fill="none" stroke="#82454a" stroke-width="3" stroke-linecap="round"/><ellipse class="layla-mouth" cx="100" cy="135" rx="10" ry="6" fill="#82454a"/><path d="M76 183l24 26 24-26-7-13q-17 20-34 0z" fill="#55c7ef"/></svg>';
+}
+function tutorCard(turn){
+ return escape(turn.text)+(turn.sample?'<div class="tutor-example">'+ar(turn.sample)+(turn.transliteration?'<span>'+escape(turn.transliteration)+'</span>':'')+(turn.translation?'<span>'+escape(turn.translation)+'</span>':'')+btn('Hear phrase','speak:'+encodeURIComponent(turn.sample),'outline small')+'</div>':'');
+}
 function tutorPage(){
- const [title,prompt,reply]=scenes[tutor.scene];
  const enabled=state.ai&&!state.guest&&state.role==='student';
- return intro('Practise with Layla','Choose a real-life situation and practise Modern Standard Arabic.')+'<div class="grid two"><section class="panel"><div class="layla" aria-label="Layla, your Arabic teacher" role="img">👩🏽‍🏫</div><h2 style="margin-top:10px">Layla</h2><p>'+(enabled?'Gemini is configured. Begin an AI conversation or choose Guided Practice.':state.ai?'Sign in to use the AI tutor. Guided Practice is available now.':'AI tutor setup required. Add a Gemini API key on the server to enable AI conversations.')+'</p><label>Conversation scenario<select id="scene">'+scenes.map(([name],i)=>'<option value="'+i+'" '+(i===tutor.scene?'selected':'')+'>'+name+'</option>').join('')+'</select></label><p class="meta">Microphone transcription is provided by your browser and may use its speech service. LUGHA stores no audio recordings. Keep names and contact details out of AI messages.</p></section><section class="panel"><h3>'+(tutor.ai?'AI conversation':'Guided Practice · non-AI')+'</h3><p>'+title+'</p><div class="row">'+(enabled&&!tutor.active?btn('Start AI conversation','tutorai'):'')+(tutor.active?btn('End conversation','endtutor','outline small'):btn('Start Guided Practice','guided','subtle'))+'</div>'+(tutor.active?(tutor.ai?'<div class="chat" role="log">'+(tutor.history.map(x=>'<div class="bubble '+(x.role==='user'?'user':'')+'" dir="auto">'+escape(x.text)+(x.sample?'<div class="tutor-example">'+ar(x.sample)+(x.transliteration?'<p>'+escape(x.transliteration)+'</p>':'')+(x.translation?'<p>'+escape(x.translation)+'</p>':'')+btn('Hear example','speak:'+encodeURIComponent(x.sample),'outline small')+'</div>':'')+'</div>').join('')||'<p>Ask Layla a question or say hello to begin.</p>')+'</div><form id="chat-form"><label>Your message<input id="tutor-input" name="message" maxlength="600" required></label><div class="row"><button class="btn">Send</button>'+btn('Use microphone','mic','outline')+(tutor.history.findLast(x=>x.role==='model')?btn('Replay response','speak:'+encodeURIComponent(tutor.history.findLast(x=>x.role==='model').text.match(/[\p{Script=Arabic}\p{Mark} ،؟.!]+/gu)?.filter(x=>/\p{Script=Arabic}/u.test(x)).join(' ')||''),'outline'):'')+'</div></form>':'<div class="bubble" style="margin-top:12px">'+ar(prompt)+'</div><div class="row keypad">'+soundButtons(prompt)+btn('Show example reply','tutoranswer','subtle small')+'</div>'+(tutor.reveal?'<div class="bubble">'+ar(reply)+'</div>'+soundButtons(reply):'')+'<p>Say your reply aloud or check what the browser transcribes.</p><label>Your reply<input id="tutor-input" lang="ar" dir="rtl"></label><div class="row keypad">'+btn('Use microphone','mic','outline')+'</div>'):'')+'</section></div>';
+ const active=tutor.topic!==null;
+ const topic=active?conversationTopics[tutor.topic]:null;
+ const transcript=tutor.history.map(turn=>'<div class="bubble '+(turn.role==='user'?'user':'')+'" dir="auto"><strong>'+(turn.role==='user'?'You':'Layla')+'</strong> '+tutorCard(turn)+'</div>').join('');
+ return intro('AI Arabic Tutor','Practise everyday Arabic with Layla.')+
+ '<div class="tutor-studio"><section class="panel tutor-stage"><div class="heading"><h2>Layla</h2><span class="chip">'+(tutor.ai?'AI conversation':'Guided practice')+'</span></div><div class="layla" role="img" aria-label="Animated portrait of Layla">'+tutorAvatar()+'</div><p id="tutor-status" role="status">'+(active?'Ready to practise':'Choose a conversation topic')+'</p><div class="row tutor-voice">'+(active?btn('Use microphone','mic')+btn('Replay audio','tutorreplay','outline small')+btn('Pause or resume','pause','outline small')+btn('Stop audio','tutorstop','outline small'):'')+'</div><p class="meta">Arabic audio uses your device’s voice. Microphone transcription may use your browser’s speech service.</p></section>'+
+ '<section class="panel tutor-session"><div class="heading"><h2>Conversation topic</h2>'+(active?btn('Change topic','endtutor','outline small'):'')+'</div>'+
+ (active?'<h3>'+escape(topic.title)+'</h3><p>'+escape(topic.description)+'</p><div class="row tutor-prompts">'+topic.prompts.map(([prompt],i)=>btn(escape(prompt),'tutorprompt:'+i,'subtle small')).join('')+'</div>':
+ '<div class="tutor-topics">'+tutorTopics.map((item,i)=>btn('<span aria-hidden="true">'+item.icon+'</span><strong>'+escape(item.title)+'</strong><small>'+escape(item.description)+'</small>','tutortopic:'+i,'outline tutor-topic')).join('')+'</div><details class="tutor-transcript"><summary>More roleplay scenarios</summary><div class="row tutor-prompts">'+roleplayTopics.map((item,i)=>btn(escape(item.title),'tutortopic:'+(i+tutorTopics.length),'outline small')).join('')+'</div></details>')+
+ (active?'<div class="chat" role="log" aria-label="Live captions">'+transcript+'</div><form id="chat-form"><label>Type or review your reply<input id="tutor-input" name="message" dir="auto" placeholder="Type or speak…" maxlength="600" required></label><button class="btn">Send</button></form><details class="tutor-transcript"><summary>Full session transcript</summary>'+transcript+'</details>':'')+
+ '<div class="row tutor-mode">'+(enabled?(active?btn(tutor.ai?'Use guided practice':'Use AI conversation',tutor.ai?'guided':'tutorai','outline small'):'<p>Choose a topic, then switch to an AI conversation if you want to ask your own questions.</p>'):'<p>Guided Practice uses prepared examples. AI conversation requires a configured Gemini key and a signed-in student account.</p>')+'</div></section></div>';
+}
+function selectTutorTopic(index,ai=false){
+ const topic=conversationTopics[index];
+ if(!topic)return;
+ stopAudio();recognition?.abort();
+ tutor={topic:index,history:[{role:'model',...topic.opening}],ai};
+ render();
+ speak(topic.opening.sample,'ar',true);
+}
+async function sendTutor(message,submit){
+ const session=tutor, topic=conversationTopics[session.topic];
+ const text=message.trim();
+ if(!topic||!text)return;
+ const history=[...session.history,{role:'user',text}];
+ if(submit){submit.disabled=true;submit.textContent='Waiting for Layla…';}
+ const status=document.getElementById('tutor-status');
+ if(status)status.textContent=session.ai?'Layla is preparing a response…':'Getting the next example…';
+ try{
+  const card=session.ai?await api('tutor',{topic:session.topic<tutorTopics.length?session.topic:undefined,scene:session.topic>=tutorTopics.length?session.topic-tutorTopics.length:undefined,history}).then(data=>({text:data.reply,sample:data.arabic,transliteration:data.transliteration,translation:data.translation})):guidedReply(topic,text);
+  if(tutor!==session||route!=='tutor')return;
+  session.history=[...history,{role:'model',...card}];
+  render();
+  document.querySelector('.chat')?.lastElementChild?.scrollIntoView({block:'nearest'});
+  document.getElementById('tutor-input')?.focus({preventScroll:true});
+  if(card.sample)speak(card.sample,'ar',true);
+ }finally{
+  if(status?.isConnected)status.textContent='Ready to practise';
+  if(submit){submit.disabled=false;submit.textContent='Send';}
+ }
 }
 function teacherPage(){
  return schoolLogo()+intro('Classrooms','Create a private classroom, assign lessons and view participation.')+'<div class="grid two"><section class="panel"><form id="class-create"><label>Classroom name<input name="name" maxlength="60" required></label><button class="btn">Create classroom</button></form></section><section class="panel" id="class-list"><p>Loading classrooms…</p></section></div><div id="class-detail"></div>';
@@ -285,7 +330,11 @@ function render(){
  if((route==='teacher'||route==='home')&&state.role==='teacher')loadClasses().catch(e=>notify(e.message));
  if(route==='admin')api('admin').then(list=>{if($('#accounts'))$('#accounts').innerHTML='<h3 style="margin-top:14px">Registered accounts</h3>'+list.map(x=>'<p>'+escape(x.email)+' · '+escape(x.role)+'</p>').join('');}).catch(e=>notify(e.message));
 }
-function stopAudio(){window.speechSynthesis?.cancel();playing=null;}
+function stopAudio(){
+ window.speechSynthesis?.cancel();playing=null;
+ document.querySelector('.layla')?.classList.remove('talking');
+ document.getElementById('tutor-status')?.replaceChildren('Ready to practise');
+}
 function speak(value,language='ar',quiet=false){
  if(!value||!('speechSynthesis' in window)){notify('Arabic speech is unavailable on this device.');return;}
  const voice=speechSynthesis.getVoices().find(x=>x.lang.toLowerCase().split(/[-_]/)[0]===language);
@@ -306,8 +355,8 @@ function mic(){
  recognition=new Speech();recognition.lang='ar-AE';
  recognition.onresult=e=>{if($('#tutor-input'))$('#tutor-input').value=e.results[0][0].transcript;};
  recognition.onerror=e=>notify(e.error==='not-allowed'?'Microphone permission was declined. You can type your reply.':'Transcription could not start. You can type your reply.');
- recognition.onend=()=>{recognition=null;$('.layla')?.classList.remove('talking');};
- try{recognition.start();$('.layla')?.classList.add('talking');notify('Listening for Arabic…');}catch{recognition=null;notify('The microphone could not start.');}
+ recognition.onend=()=>{recognition=null;document.getElementById('tutor-status')?.replaceChildren('Ready to practise');$('.layla')?.classList.remove('talking');};
+ try{recognition.start();$('.layla')?.classList.add('talking');document.getElementById('tutor-status')?.replaceChildren('Listening for Arabic…');}catch{recognition=null;notify('The microphone could not start.');}
 }
 function putText(input,value){
  if(!input)return;
@@ -425,10 +474,13 @@ async function action(name,raw){
   case 'video-prev':slide(-1);return;
   case 'video-next':slide(1);return;
   case 'shop':state=await api('shop',{item:Number(raw)});notify('Cosmetic equipped.');break;
-  case 'guided':tutor={scene:tutor.scene,history:[],active:true,ai:false,reveal:false};break;
-  case 'tutorai':tutor={scene:tutor.scene,history:[],active:true,ai:true};break;
-  case 'endtutor':stopAudio();recognition?.abort();tutor={scene:tutor.scene,history:[],active:false,ai:false};break;
-  case 'tutoranswer':tutor.reveal=!tutor.reveal;break;
+  case 'tutortopic':selectTutorTopic(Number(raw));return;
+  case 'tutorprompt':{const prompt=conversationTopics[tutor.topic]?.prompts[Number(raw)]?.[0];if(prompt)await sendTutor(prompt);return;}
+  case 'guided':selectTutorTopic(tutor.topic);return;
+  case 'tutorai':if(state.ai&&!state.guest&&state.role==='student')selectTutorTopic(tutor.topic,true);return;
+  case 'endtutor':stopAudio();recognition?.abort();tutor={topic:null,history:[],ai:false};break;
+  case 'tutorreplay':{const last=tutor.history.findLast(entry=>entry.sample);if(last)speak(last.sample);return;}
+  case 'tutorstop':stopAudio();return;
   case 'mic':mic();return;
   case 'room':await showRoom(raw);return;
   case 'visibility':{const [room,enabled]=raw.split(':');await api('classroom/visibility',{room,visible:enabled==='yes'});await showRoom(room);notify('Leaderboard visibility updated.');return;}
@@ -484,23 +536,7 @@ document.addEventListener('submit',async event=>{
     const items=data.items.split('\n').filter(line=>line.trim()).map(line=>{const [ar,en,say]=line.split('|').map(x=>x.trim());return {ar,en,say};});
     lessons=await api('admin/lesson',{lesson:{id,title:data.title,world:Number(data.world),items}});render();notify('Lesson saved.');break;
    }
-   case 'chat-form':{
-    const message=data.message.trim();if(!message)return;
-    const session=tutor;
-    const history=[...session.history,{role:'user',text:message}];
-    const submit=event.submitter;
-    if(submit){submit.disabled=true;submit.textContent='Waiting for Layla…';}
-    try{
-     const {reply,arabic:sample,transliteration,translation}=await api('tutor',{scene:session.scene,history});
-     session.history=[...history,{role:'model',text:reply,sample,transliteration,translation}];
-     if(tutor===session&&route==='tutor'){
-      render();$('.chat')?.lastElementChild?.scrollIntoView({block:'nearest'});
-      const arabic=sample||reply.match(/[\p{Script=Arabic}\p{Mark} ،؟.!]+/gu)?.filter(x=>/\p{Script=Arabic}/u.test(x)).join(' ');
-      if(arabic)speak(arabic);
-     }
-    }finally{if(submit){submit.disabled=false;submit.textContent='Send';}}
-    break;
-   }
+   case 'chat-form':await sendTutor(data.message,event.submitter);break;
   }
  }catch(e){notify(e.message);}finally{busy=false;}
 });
@@ -508,7 +544,6 @@ document.addEventListener('change',event=>{
  const {id,value}=event.target;
  if(id==='video-pace'&&video){video.speed=Number(value);if(video.running)slide();}
  if(id==='parent-child'){parentChild=value;render();document.getElementById("parent-child")?.focus();}
- if(id==='scene'){tutor={scene:Number(value),history:[],active:false,ai:false};stopAudio();render();}
  if(id==='existing'){
   const lesson=lessons.find(x=>x.id===value),form=event.target.form;
   form.elements.title.value=lesson?.title||'';

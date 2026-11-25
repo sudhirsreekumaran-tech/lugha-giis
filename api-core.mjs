@@ -1,3 +1,4 @@
+import { tutorTopics } from './public/tutor-topics.mjs';
 import { effectiveProfile, linkedChildren, schoolSchema, seedSchoolDemo } from './school.mjs';
 import { cabinets } from './public/arcade-engine.mjs';
 import { arcadeSchema, arcadeService } from './arcade-service.mjs';
@@ -381,7 +382,7 @@ export async function api(req,res,path){
   if(contents.at(-1)?.role!=='user')fail(400,'Send a message first.');
   const profile=await effectiveProfile(user), model=process.env.GEMINI_MODEL||'gemini-3.5-flash-lite';
   if(!/^[\w.-]+$/.test(model))fail(503,'The tutor model is configured incorrectly.');
-  const instruction='You are Layla, an age-appropriate Modern Standard Arabic tutor. Only discuss learning Arabic. Never ask for identifying information or repeat sensitive information. Explain gently in short steps, one question at a time. Include diacritics in Arabic and plain English explanations. Proficiency: '+profile.level+'. '+(profile.simplified?'Use plain words and one instruction per reply. ':'Use short, friendly explanations. ')+'Offer a short written example. Scenario: '+(scenes[Number(body.scene)]?.[0]||scenes[0][0])+'.';
+  const instruction='You are Layla, an age-appropriate Modern Standard Arabic tutor. Only discuss learning Arabic. Never ask for identifying information or repeat sensitive information. Explain gently in short steps, one question at a time. Include diacritics in Arabic and plain English explanations. Proficiency: '+profile.level+'. '+(profile.simplified?'Use plain words and one instruction per reply. ':'Use short, friendly explanations. ')+'Offer a short written example. Scenario: '+(tutorTopics[Number(body.topic)]?.title||scenes[Number(body.scene)]?.[0]||scenes[0][0])+'.';
   let response;
   try{
    response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':process.env.GEMINI_API_KEY},signal:AbortSignal.timeout(20000),body:JSON.stringify({contents,systemInstruction:{parts:[{text:instruction}]},generationConfig:{maxOutputTokens:650,responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{reply:{type:'STRING'},arabic:{type:'STRING'},transliteration:{type:'STRING'},translation:{type:'STRING'}},required:['reply']}}})});
