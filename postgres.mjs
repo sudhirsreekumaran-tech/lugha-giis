@@ -1,4 +1,5 @@
 import pg from 'pg';
+import {readFileSync} from 'node:fs';
 
 const types={
  getTypeParser(oid,format){
@@ -13,8 +14,12 @@ const types={
 export const postgresEnabled=()=>Boolean(process.env.SUPABASE_DATABASE_URL);
 export function createPostgres(){
  const url=new URL(process.env.SUPABASE_DATABASE_URL);
- url.searchParams.delete('sslmode');
- return new pg.Pool({connectionString:url.toString(),ssl:{rejectUnauthorized:true},max:3,types,connectionTimeoutMillis:6000,idleTimeoutMillis:10000});
+ for(const option of ['ssl','sslmode','sslcert','sslkey','sslrootcert'])url.searchParams.delete(option);
+ const ssl={rejectUnauthorized:true};
+ if(url.hostname.endsWith('.pooler.supabase.com')||/^db\.[a-z0-9]+\.supabase\.co$/.test(url.hostname)){
+  ssl.ca=readFileSync(new URL('./supabase/prod-ca-2021.crt',import.meta.url),'utf8');
+ }
+ return new pg.Pool({connectionString:url.toString(),ssl,max:3,types,connectionTimeoutMillis:6000,idleTimeoutMillis:10000});
 }
 export function postgresSql(sql){
  let index=0;
