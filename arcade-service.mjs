@@ -24,7 +24,7 @@ export function arcadeService({run,one,query,transact,fail,award,id,randomInt,da
    const profile=JSON.parse(user.profile);
    const level=requested<0?(profile.mode==='Normal'?1:0):requested;
    const config={game,seed:randomInt(1000000),level,assist:body.assist===true};
-   const selection=await questions(user,level,body.world,game);
+   const selection=await questions(user,level,body.world,game,body.items);
    if(!selection.length)fail(409,'No questions are available for this mission.');
    const token=id();
    await run('INSERT INTO arcade_runs(id,uid,game,config,questions) VALUES(?,?,?,?,?)',token,user.id,game,JSON.stringify(config),JSON.stringify(selection));
@@ -48,11 +48,10 @@ export function arcadeService({run,one,query,transact,fail,award,id,randomInt,da
     if(!done)return {correct,position,turn:row.turn+1,next:show(list[position]),score,combo};
     const accuracy=Math.round(100*position/(position+misses));
     await run('INSERT INTO arcade_bests VALUES(?,?,?,?) ON CONFLICT(uid,game) DO UPDATE SET score=excluded.score,accuracy=excluded.accuracy WHERE excluded.score>arcade_bests.score OR (excluded.score=arcade_bests.score AND excluded.accuracy>arcade_bests.accuracy)',user.id,row.game,score,accuracy);
+    await run('UPDATE learning_journeys SET score=?,accuracy=?,completed_at=? WHERE run_id=? AND uid=?',score,accuracy,new Date().toISOString(),row.id,user.id);
     const earned=await award(user.id,'arcade:'+row.game+':'+day(),'arcade',row.game,50,5,accuracy);
     return {correct,done,position,turn:row.turn+1,score,accuracy,combo,earned,best:await one('SELECT score,accuracy FROM arcade_bests WHERE uid=? AND game=?',user.id,row.game)};
    });
   }
  };
 }
-
-

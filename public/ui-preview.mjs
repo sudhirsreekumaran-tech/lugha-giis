@@ -26,7 +26,7 @@ export function createPreview(){
    if(path==='arcade/start'){
     if(!Object.hasOwn(cabinets,body.game))throw Error('Choose an available game.');
     const world=body.world??(body.game==='cross'?6:null);
-    const pool=lessons.filter(x=>world===null?x.world===2:x.world===world).flatMap(x=>x.items);
+    const pool=lessons.find(x=>x.id===body.lesson)?.items||lessons.filter(x=>world===null?x.world===2:x.world===world).flatMap(x=>x.items);
     const level=Math.max(0,difficulty.indexOf(body.difficulty));
     const count=level===0||body.game==='dash'?3:4;
     const questions=mix(pool).slice(0,5).map(item=>({

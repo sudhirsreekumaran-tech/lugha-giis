@@ -13,7 +13,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open [LUGHA on localhost](http://127.0.0.1:3000/). Start as a guest or select the account avatar to register with email. Registering from a guest session carries over guest progress. Settings contains guided setup and the optional placement quiz.
+Open [LUGHA on localhost](http://127.0.0.1:3000/). Start as a guest or select the account avatar to sign in to a school portal. Settings contains guided setup and the optional placement quiz.
 
 Run the integration tests with `node --test`. They use a temporary database and require loopback network access.
 
@@ -61,3 +61,17 @@ LUGHA uses the supplied GIIS logo as-is and identifies itself as a student innov
 
 The current cabinets are compact takes on the brief. Snake uses vocabulary runes, Block Builder drops pieces into answer slots, and Grand Prix uses a scrolling gate course. Dedicated Snake spelling, freeform block combinations, extended platform campaigns, full racing tracks, additional puzzle formats and classroom tournaments are areas for expansion. The existing Layla integration still requires a Gemini API key for live testing and uses browser text-to-speech and transcription. It does not use streaming Gemini Live.
 
+
+## School portals and demonstration accounts
+
+The live guest preview keeps sign-in and shared school records disabled until a production database is added. To test the three authenticated portals locally, set `LUGHA_ENABLE_DEMOS=1` and run the app using a fresh local database. The server seeds fictional learners and links once. Demo seeding is disabled on Vercel.
+
+| Portal | Email | Demo password |
+| --- | --- | --- |
+| Student | `student@lugha.example` | `LughaDemo2026!` |
+| Parent | `parent@lugha.example` | `LughaDemo2026!` |
+| Teacher | `teacher@lugha.example` | `LughaDemo2026!` |
+
+The server-only `school.mjs` module reads authorised student profiles and parent links. A future school integration must provide documented identity claims or an SSO provider, authorised roster and relationship exports or APIs, and permission to ingest the specific teaching accommodations required. Map school learner identifiers to LUGHA account IDs. Keep parent links and teacher classroom assignments server-managed, and import only functional preferences such as larger text and untimed practice. School credentials and roster data must never be placed in client code or source control.
+
+Bolt's narrated transcript approach now links lesson content to its related arcade game. With a database, the video knowledge check and the lesson-linked arcade results are recorded separately. The tutor uses the existing server Gemini key with structured Arabic examples, pronunciation and translations. Browser audio support still depends on the device.

@@ -1,3 +1,4 @@
+import { effectiveProfile, linkedChildren, schoolSchema, seedSchoolDemo } from './school.mjs';
 import { cabinets } from './public/arcade-engine.mjs';
 import { arcadeSchema, arcadeService } from './arcade-service.mjs';
 import { query, one, run, batch, transact } from './database.mjs';
@@ -26,8 +27,9 @@ export function initialize(){
  return ready;
 }
 async function seed(){
- const statements=[...(schema+arcadeSchema).split(';').map(x=>x.trim()).filter(Boolean), ...starter.map(lesson=>({sql:'INSERT OR IGNORE INTO content VALUES(?,?)',args:[lesson.id,JSON.stringify(lesson)]}))];
+ const statements=[...(schema+arcadeSchema+schoolSchema).split(';').map(x=>x.trim()).filter(Boolean), ...starter.map(lesson=>({sql:'INSERT OR IGNORE INTO content VALUES(?,?)',args:[lesson.id,JSON.stringify(lesson)]}))];
  await batch(statements);
+ await seedSchoolDemo(defaults,passwordHash);
 }
 const id = ()=>randomBytes(24).toString('hex');
 const hash = value=>createHash('sha256').update(value).digest('hex');
@@ -45,7 +47,7 @@ const curriculum = async()=> (await query('SELECT data FROM content ORDER BY row
 function passwordHash(password,salt=id()) {return salt+':'+scryptSync(password,salt,64).toString('hex');}
 export async function setRole(email,role){
  await initialize();
- if(!email||!['student','teacher','admin'].includes(role))throw Error('Usage: node server.mjs role EMAIL student|teacher|admin');
+ if(!email||!['student','parent','teacher','admin'].includes(role))throw Error('Usage: node server.mjs role EMAIL student|teacher|admin');
  if(!(await run('UPDATE users SET role=? WHERE email=?',role,email.toLowerCase())).changes)throw Error('Register this email first.');
 }
 export function fail(code,message){throw Object.assign(new Error(message),{code});}
@@ -74,8 +76,8 @@ async function limit(key,max,ms){
 function settings(body,current){
  const profile={...current};
  for(const [key,values] of Object.entries({mode:['Normal','Special','Dyslexia'],level:['Complete Beginner','Beginner','Intermediate','Advanced'],theme:['Light','Dark','Cream','High contrast'],avatar:['🦊','🌟','🌙','🐪','🌵'],minutes:[5,10,15,20]})) if(values.includes(body[key]))profile[key]=body[key];
- for(const key of ['motion','sound','audioInstructions','leaderboard','onboarded'])if(typeof body[key]==='boolean')profile[key]=body[key];
- for(const [key,min,max] of [['english',85,145],['arabic',85,175],['spacing',1.3,2.3],['speed',.5,1.25]])if(typeof body[key]==='number')profile[key]=Math.min(max,Math.max(min,body[key]));
+ for(const key of ['motion','sound','audioInstructions','simplified','readingFont','leaderboard','onboarded'])if(typeof body[key]==='boolean')profile[key]=body[key];
+ for(const [key,min,max] of [['english',85,145],['arabic',85,175],['spacing',1.3,2.3],['speed',.5,1.25],['videoSpeed',.5,1.5]])if(typeof body[key]==='number')profile[key]=Math.min(max,Math.max(min,body[key]));
  if(text(body.name,32))profile.name=text(body.name,32);
  if(text(body.goal,80))profile.goal=text(body.goal,80);
  return profile;
@@ -124,7 +126,7 @@ async function state(user){
  ];
  const week=weekOf(Date.now());
  const weeklyCount=activity.filter(x=>x.kind==='lesson'&&weekOf(x.at)===week).length;
- return {arcadeBests,weeklyCount,week,profile:JSON.parse(user.profile),role:user.role,guest:!user.email,activity,completed,bosses,days:[...past],streak,longest,mastery,xp,gems,level,next:ranks[level+1]||null,base:ranks[level],achievements,inventory:(await query('SELECT item FROM inventory WHERE uid=?',user.id)).map(x=>x.item),study:await query('SELECT lesson,at FROM study WHERE uid=? ORDER BY at DESC',user.id),daily:activity.some(x=>x.key==='quest:'+today()),dailyCount:activity.filter(x=>x.kind==='lesson'&&dayOf(x.at)===today()).length,ai:!!process.env.GEMINI_API_KEY};
+ return {arcadeBests,weeklyCount,week,journeys:await query('SELECT lesson,score,accuracy,completed_at FROM learning_journeys WHERE uid=? AND completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 30',user.id),profile:await effectiveProfile(user),role:user.role,demo:user.id.startsWith('demo-'),guest:!user.email,activity,completed,bosses,days:[...past],streak,longest,mastery,xp,gems,level,next:ranks[level+1]||null,base:ranks[level],achievements,inventory:(await query('SELECT item FROM inventory WHERE uid=?',user.id)).map(x=>x.item),study:await query('SELECT lesson,at FROM study WHERE uid=? ORDER BY at DESC',user.id),daily:activity.some(x=>x.key==='quest:'+today()),dailyCount:activity.filter(x=>x.kind==='lesson'&&dayOf(x.at)===today()).length,ai:!!process.env.GEMINI_API_KEY};
 }
 async function openWorld(uid,index){
  return index===0||!!(await one('SELECT 1 FROM activity WHERE uid=? AND key=?',uid,'boss:'+(index-1)));
@@ -271,6 +273,7 @@ export async function api(req,res,path){
    WHERE c.visible=1
    GROUP BY c.id,m.uid ORDER BY c.name,xp DESC
   `,user.id);
+  if(path==='/api/parent/children'){if(user.role!=='parent')fail(403,'Parent access required.');return linkedChildren(user.id);}
   if(path==='/api/assignments')return query('SELECT assignments.*,classrooms.name FROM assignments JOIN classrooms ON classrooms.id=assignments.room JOIN members ON members.room=classrooms.id WHERE members.uid=?',user.id);
   if(path==='/api/admin'&&user.role==='admin')return query('SELECT email,role FROM users WHERE email IS NOT NULL');
   fail(404,'Page unavailable.');
@@ -304,6 +307,7 @@ export async function api(req,res,path){
    const [salt]=stored.split(':');
    if(!timingSafeEqual(Buffer.from(stored.split(':')[1],'hex'),Buffer.from(passwordHash(password,salt).split(':')[1],'hex'))||!account)fail(401,'The email or password is incorrect.');
   }
+  if(path.endsWith('login')&&body.role!==undefined&&body.role!==account.role&&!(body.role==='teacher'&&account.role==='admin'))fail(403,'Use the sign-in option assigned to your account.');
   if(user){const token=/\blugha=([a-f0-9]{48})/.exec(req.headers.cookie)?.[1];if(token)await run('DELETE FROM sessions WHERE token=?',hash(token));}
   await session(res,account.id);
   return state(account);
@@ -327,7 +331,17 @@ export async function api(req,res,path){
  }
  if(path==='/api/arcade/start'){
   await limit('arcade-start:'+user.id,35,60000);
-  return arcade.start(user,body);
+  const profile=await effectiveProfile(user);
+  if(body.lesson!==undefined){
+   const lesson=(await curriculum()).find(x=>x.id===body.lesson);
+   if(!lesson||!(await openWorld(user.id,lesson.world)))fail(403,'This lesson is locked.');
+   return transact(async()=>{
+    const result=await arcade.start(user,{...body,world:lesson.world,items:lesson.items,assist:profile.schoolAssist||body.assist===true});
+    await run('INSERT INTO learning_journeys(run_id,uid,lesson) VALUES(?,?,?)',result.id,user.id,lesson.id);
+    return result;
+   });
+  }
+  return arcade.start(user,{game:body.game,difficulty:body.difficulty,world:body.world,assist:profile.schoolAssist||body.assist===true});
  }
  if(path==='/api/arcade/move'){
   await limit('arcade-move:'+user.id,180,60000);
@@ -360,23 +374,26 @@ export async function api(req,res,path){
  });
  if(path==='/api/tutor'){
   if(!process.env.GEMINI_API_KEY)fail(503,'Layla needs a Gemini key. Guided Practice is available now.');
-  if(user.email===null)fail(403,'Sign in to use Layla.');
+  if(user.role!=='student'||user.email===null)fail(403,'Sign in as a student to use Layla.');
   await limit('ai:'+user.id,8,60000);
   const history=Array.isArray(body.history)?body.history.slice(-10):[];
   const contents=history.filter(turn=>['user','model'].includes(turn?.role)&&text(turn?.text,600)).map(turn=>({role:turn.role,parts:[{text:text(turn.text,600)}]}));
   if(contents.at(-1)?.role!=='user')fail(400,'Send a message first.');
-  const profile=JSON.parse(user.profile), model=process.env.GEMINI_MODEL||'gemini-3.5-flash-lite';
+  const profile=await effectiveProfile(user), model=process.env.GEMINI_MODEL||'gemini-3.5-flash-lite';
   if(!/^[\w.-]+$/.test(model))fail(503,'The tutor model is configured incorrectly.');
-  const instruction='You are Layla, an age-appropriate Modern Standard Arabic tutor. Only discuss learning Arabic. Never ask for identifying information or repeat sensitive information. Explain gently in short steps, one question at a time. Include diacritics in Arabic and plain English explanations. Proficiency: '+profile.level+'. Learning mode: '+profile.mode+'. Scenario: '+(scenes[Number(body.scene)]?.[0]||scenes[0][0])+'.';
+  const instruction='You are Layla, an age-appropriate Modern Standard Arabic tutor. Only discuss learning Arabic. Never ask for identifying information or repeat sensitive information. Explain gently in short steps, one question at a time. Include diacritics in Arabic and plain English explanations. Proficiency: '+profile.level+'. '+(profile.simplified?'Use plain words and one instruction per reply. ':'Use short, friendly explanations. ')+'Offer a short written example. Scenario: '+(scenes[Number(body.scene)]?.[0]||scenes[0][0])+'.';
   let response;
   try{
-   response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':process.env.GEMINI_API_KEY},signal:AbortSignal.timeout(20000),body:JSON.stringify({contents,systemInstruction:{parts:[{text:instruction}]},generationConfig:{maxOutputTokens:600}})});
+   response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':process.env.GEMINI_API_KEY},signal:AbortSignal.timeout(20000),body:JSON.stringify({contents,systemInstruction:{parts:[{text:instruction}]},generationConfig:{maxOutputTokens:650,responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{reply:{type:'STRING'},arabic:{type:'STRING'},transliteration:{type:'STRING'},translation:{type:'STRING'}},required:['reply']}}})});
   }catch{fail(502,'Layla could not connect. Guided Practice is still available.');}
   if(!response.ok)fail(502,response.status===429?'Layla has reached its service quota. Try again later.':'Layla is unavailable. Check the server model and key.');
   const payload=await response.json();
   const reply=payload.candidates?.[0]?.content?.parts?.filter(x=>!x.thought).map(x=>x.text).join(' ');
   if(!reply)fail(502,'Layla could not respond to that message. Try a different Arabic question.');
-  return {reply};
+  let card;
+  try{card=JSON.parse(reply);}catch{fail(502,'Layla returned an unreadable response. Please try again.');}
+  if(!text(card?.reply,1000))fail(502,'Layla returned an empty response.');
+  return {reply:text(card.reply,1000),arabic:text(card.arabic,400),transliteration:text(card.transliteration,400),translation:text(card.translation,400)};
  }
  if(path==='/api/join'){
   const room=await one('SELECT id FROM classrooms WHERE id=?',text(body.code,20).toUpperCase());
@@ -395,9 +412,21 @@ export async function api(req,res,path){
   }
   const room=await teacherRoom(user.id,text(body.room,20));
   if(path==='/api/classroom/assign'){
-   if(typeof body.lesson!=='string'||!((await curriculum()).some(x=>x.id===body.lesson)||body.lesson.startsWith('arcade/')&&Object.hasOwn(cabinets,body.lesson.slice(7))))fail(400,'Choose a lesson or arcade mission.');
+   if(typeof body.lesson!=='string'||!((await curriculum()).some(x=>x.id===body.lesson)||body.lesson.startsWith('videos/')&&(await curriculum()).some(x=>x.id===body.lesson.slice(7))||body.lesson.startsWith('arcade/')&&Object.hasOwn(cabinets,body.lesson.slice(7))))fail(400,'Choose a lesson or arcade mission.');
    await run('INSERT INTO assignments VALUES(?,?,?,?)',id(),room.id,body.lesson,text(body.title,80)||'Lesson assignment');
    return {saved:true};
+  }
+  if(path==='/api/classroom/assignments'){
+   return query(`
+    SELECT a.id,a.title,a.lesson,COUNT(m.uid) AS assigned,COUNT(CASE WHEN EXISTS(
+      SELECT 1 FROM activity e WHERE e.uid=m.uid AND (
+       (a.lesson LIKE 'arcade/%' AND e.kind='arcade' AND e.target=substr(a.lesson,8)) OR
+       (a.lesson LIKE 'videos/%' AND e.kind='video' AND e.target=substr(a.lesson,8)) OR
+       (e.kind='lesson' AND e.target=a.lesson)
+      )
+    ) THEN 1 END) AS completed
+    FROM assignments a LEFT JOIN members m ON a.room=m.room WHERE a.room=? GROUP BY a.id
+   `,room.id);
   }
   if(path==='/api/classroom/visibility'){
    await run('UPDATE classrooms SET visible=? WHERE id=?',+!!body.visible,room.id);
@@ -418,7 +447,7 @@ export async function api(req,res,path){
 }
 const arcade=arcadeService({
  run,one,query,transact,fail,award,id,randomInt,day:today,
- async questions(user,level,world,game){
+ async questions(user,level,world,game,items){
   const list=await curriculum();
   const profile=JSON.parse(user.profile);
   const proficiency=['Complete Beginner','Beginner','Intermediate','Advanced'].indexOf(profile.level);
@@ -427,8 +456,8 @@ const arcade=arcadeService({
   const gamesWorld=game==='cross'?6:game==='invaders'&&level>1?3:null;
   const valid=Number.isInteger(world)&&worlds[world]?world:gamesWorld;
   const themed=valid===null?list.filter(x=>x.world<=Math.min(7,2+proficiency+level)):list.filter(x=>x.world===valid);
-  const pool=themed.flatMap(x=>x.items);
-  const favoured=themed.flatMap(x=>x.items.filter(w=>recent.has(x.id)||review.has(w.id)));
+  const pool=items||themed.flatMap(x=>x.items);
+  const favoured=items?[]:themed.flatMap(x=>x.items.filter(w=>recent.has(x.id)||review.has(w.id)));
   const sample=[...new Map([...shuffle(favoured).slice(0,2),...shuffle(pool)].map(w=>[w.id,w])).values()].slice(0,level>=2?6:5);
   return sample.map(w=>question(w,pool,'arabic',level===0||game==='dash'?3:4));
  },

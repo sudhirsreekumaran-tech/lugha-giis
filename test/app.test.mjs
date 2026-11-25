@@ -10,7 +10,7 @@ import {join} from 'node:path';
 
 test('learning, account persistence and access control',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'lugha-test-')),dbPath=join(dir,'test.sqlite');
- const child=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:'0',HOST:'127.0.0.1',LUGHA_DB:dbPath,LUGHA_HTTPS:'0',GEMINI_API_KEY:''},stdio:['ignore','pipe','inherit']});
+ const child=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:'0',HOST:'127.0.0.1',LUGHA_DB:dbPath,LUGHA_HTTPS:'0',LUGHA_ENABLE_DEMOS:'1',GEMINI_API_KEY:''},stdio:['ignore','pipe','inherit']});
  t.after(async()=>{const done=once(child,'exit');child.kill();await done;rmSync(dir,{recursive:true,force:true});});
  const [line]=await once(child.stdout,'data');
  const port=String(line).match(/port (\d+)/)[1];
@@ -37,6 +37,24 @@ test('learning, account persistence and access control',async t=>{
   assert.equal(result.score,100);
   return {attempt,result};
  };
+ const demoParent=client(),demoStudent=client(),demoTeacher=client();
+ const password='LughaDemo2026!';
+ await demoParent('login',{email:'parent@lugha.example',password,role:'student'},403);
+ assert.equal((await demoParent('login',{email:'parent@lugha.example',password,role:'parent'})).demo,true);
+ const linked=await demoParent('parent/children');
+ assert.equal(linked.length,2);
+ assert.ok(linked.every(x=>!Object.hasOwn(x,'support')&&!Object.hasOwn(x,'external_id')));
+ const support=await demoStudent('login',{email:'student@lugha.example',password,role:'student'});
+ assert.equal(support.profile.schoolAssist,true);
+ assert.equal(support.profile.english,120);
+ await demoStudent('parent/children',undefined,403);
+ const supported=await demoStudent('arcade/start',{game:'maze',lesson:'l0',assist:false});
+ assert.equal(supported.config.assist,true);
+ await demoTeacher('login',{email:'teacher@lugha.example',password,role:'teacher'});
+ assert.equal((await demoTeacher('classrooms'))[0].id,'DEMOCLASS');
+ await demoTeacher('classroom/assign',{room:'DEMOCLASS',lesson:'videos/l0',title:'Narrated slides'});
+ assert.equal((await demoTeacher('classroom/assignments',{room:'DEMOCLASS'}))[0].assigned,2);
+ await demoParent('classroom/assignments',{room:'DEMOCLASS'},403);
  const all=await user('content');
  assert.equal(new Set(all.map(x=>x.world)).size,8);
  assert.equal(all.length,50);
@@ -92,7 +110,7 @@ test('learning, account persistence and access control',async t=>{
  assert.equal(await user('state'),null);
  const loaded=await user('login',credentials);
  const play=async ()=>{
-  const round=await user('arcade/start',{game:'maze',difficulty:'Explorer',assist:true});
+  const round=await user('arcade/start',{game:'maze',lesson:'l0',difficulty:'Explorer',assist:true});
   assert.equal(Object.hasOwn(round.next,'answer'),false);
   await user('arcade/move',{id:round.id,turn:0,inputs:'.'},422);
   const questions=JSON.parse(db.prepare('SELECT questions FROM arcade_runs WHERE id=?').get(round.id).questions);
@@ -108,7 +126,7 @@ test('learning, account persistence and access control',async t=>{
    result=await user('arcade/move',{id:round.id,turn,inputs:routeToRune(round.config,q.options.length,turn,q.options.indexOf(q.answer)),score:999999});
   }
   assert.equal(result.done,true);
-  assert.equal(result.accuracy,83);
+  assert.equal(result.accuracy,Math.round(100*questions.length/(questions.length+1)));
   assert.ok(result.score<1200);
   assert.equal(result.best.score,result.state.arcadeBests[0].score);
   await user('arcade/move',{id:round.id,turn:5,inputs:'e'},409);
@@ -116,6 +134,7 @@ test('learning, account persistence and access control',async t=>{
  };
  assert.equal((await play()).earned,true);
  assert.equal((await play()).earned,false);
+ assert.equal((await user('state')).journeys.length,2);
  assert.equal(loaded.profile.mode,'Dyslexia');
  assert.equal(loaded.profile.arabic,130);
  assert.equal(loaded.completed.length,8);
@@ -172,8 +191,3 @@ test('learning, account persistence and access control',async t=>{
  assert.equal((await user('content'))[0].title,'Test revision');
  db.close();
 });
-
-
-
-
-
