@@ -11,7 +11,7 @@ const paths={
  home:'M3 10 12 3l9 7v10H3z M9 20v-6h6v6',map:'M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z M9 3v15 M15 6v15',game:'M7 8h10c3 0 4 3 5 7s-2 5-4 3l-2-2H8l-2 2c-2 2-5 1-4-3s2-7 5-7z M7 11v4m-2-2h4m7 0h1m2 2h1',chat:'M3 4h18v13H9l-6 4z M8 10h8m-8 3h5',pen:'M4 16 16 4l4 4L8 20H4z M13 7l4 4',video:'M3 5h18v14H3z M10 9l5 3-5 3z',revision:'M4 11a8 8 0 1 1 3 7 M4 5v6h6',chart:'M4 20h16 M6 17v-4m6 4V8m6 9V4',gift:'M3 9h18v4H3z M5 13v8h14v-8 M12 9v12 M12 9C2 9 6 0 12 9c6-9 10 0 0 0z',settings:'M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2',flame:'M12 22c-6 0-9-5-6-10 1 2 3 2 3 0-1-5 2-7 4-10-1 5 6 7 6 13 0 4-3 7-7 7z',gem:'M3 8l4-4h10l4 4-9 12z M3 8h18m-13 0 4 12 4-12',bolt:'M13 2 4 14h7l-1 8 10-12h-7z',target:'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M12 7a5 5 0 1 0 0 10 5 5 0 1 0 0-10 M12 11v2',lock:'M6 10h12v11H6z M8 10V7a4 4 0 0 1 8 0v3',spark:'M12 2l2.6 7.4L22 12l-7.4 2.6L12 22l-2.6-7.4L2 12l7.4-2.6z',more:'M5 12h1m5 0h1m5 0h1',play:'m8 5 11 7-11 7z',help:'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M9 9a3 3 0 1 1 4 3l-1 2m0 3h.01'
 };
 const icon=name=>'<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="'+(paths[name]||paths.spark)+'"/></svg></span>';
-const nav=[['home','Home','home'],['adventure','Adventure','map'],['games','Mini-Games','game'],['tutor','AI Tutor','chat'],['writing','Writing Lab','pen'],['videos','Videos','video'],['revision','Revision','revision'],['progress','My Progress','chart'],['rewards','Rewards','gift'],['settings','Settings','settings'],['about','About','help']];
+const nav=[['home','Home','home'],['adventure','Adventure','map'],['tutor','AI Tutor','chat'],['writing','Writing Lab','pen'],['videos','Videos & Games','video'],['revision','Revision','revision'],['progress','My Progress','chart'],['rewards','Rewards','gift'],['settings','Settings','settings'],['about','About','help']];
 const btn=(title,action,cls='')=>'<button type="button" class="btn '+cls+'" data-action="'+escape(action)+'">'+title+'</button>';
 const link=(title,route,cls='')=>'<a class="btn '+cls+'" href="#'+route+'">'+title+'</a>';
 const opts=(values,value)=>values.map(x=>'<option '+(x===value?'selected':'')+'>'+escape(x)+'</option>').join('');
@@ -42,8 +42,8 @@ function apply(){
 }
 function chrome(){
  const links=(list)=>list.map(([id,title,symbol])=>'<a href="#'+id+'" class="nav-link '+(route===id?'active':'')+'" '+(route===id?'aria-current="page"':'')+'>'+icon(symbol)+escape(title)+'</a>').join('');
- $('#sidebar').innerHTML='<a href="#home" class="brand"><span class="logo" lang="ar">ل</span><span>LUGHA<small>A GIIS Student Innovation</small></span></a><div class="label nav-label">Explore</div><nav aria-label="Explore">'+links(nav.slice(0,7))+'</nav><div class="label nav-label">Your journey</div><nav aria-label="Your journey">'+links(nav.slice(7).concat(state.role==='parent'?[['parent','Family progress','chart']]:state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]))+'</nav><div class="sidebar-bottom"><a class="mode-link" href="#settings">'+icon('help')+'Accessibility</a></div>';
- $('#mobile').innerHTML=links([nav[0],nav[1],nav[2],nav[3],['more','More','more']]);
+ $('#sidebar').innerHTML='<a href="#home" class="brand"><span class="logo" lang="ar">ل</span><span>LUGHA<small>A GIIS Student Innovation</small></span></a><div class="label nav-label">Explore</div><nav aria-label="Explore">'+links(nav.slice(0,6))+'</nav><div class="label nav-label">Your journey</div><nav aria-label="Your journey">'+links(nav.slice(6).concat(state.role==='parent'?[['parent','Family progress','chart']]:state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]))+'</nav><div class="sidebar-bottom"><a class="mode-link" href="#settings">'+icon('help')+'Accessibility</a></div>';
+ $('#mobile').innerHTML=links([nav[0],nav[1],nav.find(item=>item[0]==='videos'),nav[2],['more','More','more']]);
  $('#topbar').innerHTML='<div class="top-heading">'+schoolLogo('header-logo')+'<span class="crumb">'+escape(nav.find(x=>x[0]===route)?.[1]||({world:'Adventure',lesson:'Adventure',activity:'Practice',materials:'Study Materials',teacher:'Classrooms',admin:'Content Studio',more:'Explore'})[route]||'LUGHA')+'</span></div><div class="top-stats"><a href="#progress" class="chip" aria-label="'+state.streak+' day streak"><span class="fire">'+icon('flame')+'</span>'+state.streak+'</a><a href="#rewards" class="chip" aria-label="'+state.gems+' gems"><span class="gem">'+icon('gem')+'</span>'+state.gems+'</a><a href="#progress" class="chip"><span class="xp">'+icon('bolt')+'</span>'+state.xp+' XP</a><button class="avatar" data-action="'+(state.guest?'account':'profile')+'" aria-label="Account">'+escape(cosmetics[state.profile.equipped]?.[2]||state.profile.avatar)+'</button></div>';
 }
 function unlocked(world){return Boolean(preview)||world===0||state.bosses.includes(world-1);}
@@ -63,7 +63,7 @@ function levelPanel(){
 function missionDeck(){
  const [spotlight,featured]=Object.entries(cabinets)[Math.floor(Date.now()/86400000)%Object.keys(cabinets).length];
  const {title:name,description:desc,icon:symbol}=featured;
- return '<section class="mission-deck" aria-labelledby="play-today"><div class="heading"><h2 id="play-today">Pick a side quest</h2><a href="#games">All games</a></div><div class="side-missions">'+
+ return '<section class="mission-deck" aria-labelledby="play-today"><div class="heading"><h2 id="play-today">Pick a side quest</h2><a href="#videos/games">All games</a></div><div class="side-missions">'+
  '<a class="side-mission mint" href="#arcade/'+spotlight+'"><span class="side-symbol" aria-hidden="true">'+symbol+'</span><strong>'+name+'</strong><span>'+desc+'</span></a>'+
  '<a class="side-mission blue" href="#revision"><span class="side-symbol" aria-hidden="true">↻</span><strong>Rematch</strong><span>Take on words you’ve met before.</span></a>'+
  '<a class="side-mission yellow" href="#rewards"><span class="side-symbol" aria-hidden="true">◇</span><strong>Treasure chest</strong><span>Equip a reward with earned gems.</span></a></div></section>';
@@ -75,18 +75,18 @@ function about(){
  return intro('About LUGHA','Play. Learn. Connect.')+'<section class="panel">'+schoolLogo()+'<h2>A GIIS Student Innovation</h2><p>LUGHA is an Arabic learning and arcade project developed as a student innovation. Its challenges draw inspiration from GIIS’s holistic approach to education.</p><a class="btn outline" href="https://globalindianschool.org/the-gsf-difference/9gems/" target="_blank" rel="noopener noreferrer">GIIS 9GEMS framework</a></section>';
 }
 function records(){
- return '<section class="panel"><div class="heading"><h3>Arcade personal bests</h3><a href="#games">LUGHA Arcade</a></div>'+((state.arcadeBests||[]).map(row=>'<p>'+escape(cabinets[row.game]?.title||row.game)+' · '+row.score+' points · '+row.accuracy+'% accuracy</p>').join('')||'<p>Finish an arcade run to set your first record.</p>')+'</section>';
+ return '<section class="panel"><div class="heading"><h3>Arcade personal bests</h3><a href="#videos/games">LUGHA Arcade</a></div>'+((state.arcadeBests||[]).map(row=>'<p>'+escape(cabinets[row.game]?.title||row.game)+' · '+row.score+' points · '+row.accuracy+'% accuracy</p>').join('')||'<p>Finish an arcade run to set your first record.</p>')+'</section>';
 }
 function arcadePage(){
  const name=args[0], game=Object.hasOwn(cabinets,name)&&cabinets[name];
- if(!game)return intro('Game unavailable','Choose a cabinet in LUGHA Arcade.')+link('LUGHA Arcade','games');
+ if(!game)return intro('Game unavailable','Choose a cabinet in LUGHA Arcade.')+link('LUGHA Arcade','videos/games');
  if(gameRun?.config.game!==name||!gameRun?.next){
   const best=state.arcadeBests?.find(x=>x.game===name);
   const proficiency=['Complete Beginner','Beginner','Intermediate','Advanced'].indexOf(state.profile.level);
   const suggested=difficulty[state.profile.mode==='Normal'?Math.min(3,Math.max(proficiency,best?.accuracy>=85?2:1)):0];
-  return '<section class="panel arcade-frame">'+link('LUGHA Arcade','games','outline small')+'<div class="arcade-cover" style="border-radius:14px;margin-top:10px"><h1>'+game.title+'</h1><p>'+game.description+'</p></div><p>'+game.instructions+'</p><p>Use arrow keys, WASD, or touch controls. Press P to pause. '+(best?'Personal best: '+best.score+' points.':'')+'</p><form id="arcade-start"><label>Difficulty<select name="difficulty">'+opts(difficulty,suggested)+'</select></label><label>Question world<select name="world"><option value="">Mixed practice</option>'+worlds.map((world,i)=>'<option value="'+i+'" '+(args[1]===String(i)?'selected':'')+'>'+world[0]+'</option>').join('')+'</select></label><label class="check"><input type="checkbox" name="assist" '+(state.profile.mode!=='Normal'||state.profile.schoolAssist?'checked':'')+'> Untimed assist · remove hazards and move one step at a time</label><button class="btn">Start game</button></form></section>';
+  return '<section class="panel arcade-frame">'+link('LUGHA Arcade','videos/games','outline small')+'<div class="arcade-cover" style="border-radius:14px;margin-top:10px"><h1>'+game.title+'</h1><p>'+game.description+'</p></div><p>'+game.instructions+'</p><p>Use arrow keys, WASD, or touch controls. Press P to pause. '+(best?'Personal best: '+best.score+' points.':'')+'</p><form id="arcade-start"><label>Difficulty<select name="difficulty">'+opts(difficulty,suggested)+'</select></label><label>Question world<select name="world"><option value="">Mixed practice</option>'+worlds.map((world,i)=>'<option value="'+i+'" '+(args[1]===String(i)?'selected':'')+'>'+world[0]+'</option>').join('')+'</select></label><label class="check"><input type="checkbox" name="assist" '+(state.profile.mode!=='Normal'||state.profile.schoolAssist?'checked':'')+'> Untimed assist · remove hazards and move one step at a time</label><button class="btn">Start game</button></form></section>';
  }
- if(gameRun.done)return '<section class="panel arcade-frame celebrate"><h1>Mission complete</h1><p>'+game.title+' · '+gameRun.score+' points · '+gameRun.accuracy+'% accuracy</p><p>Personal best: '+gameRun.best.score+' points'+(gameRun.earned?' · +50 XP · +5 gems':'')+'</p><div class="row">'+btn('Play again','arcadereset')+link('LUGHA Arcade','games','outline')+(gameRun.lesson?link(gameRun.accuracy<80?'Review lesson':'Continue lesson','lesson/'+gameRun.lesson,'subtle'):'')+'</div></section>';
+ if(gameRun.done)return '<section class="panel arcade-frame celebrate"><h1>Mission complete</h1><p>'+game.title+' · '+gameRun.score+' points · '+gameRun.accuracy+'% accuracy</p><p>Personal best: '+gameRun.best.score+' points'+(gameRun.earned?' · +50 XP · +5 gems':'')+'</p><div class="row">'+btn('Play again','arcadereset')+link('LUGHA Arcade','videos/games','outline')+(gameRun.lesson?link(gameRun.accuracy<80?'Review lesson':'Continue lesson','lesson/'+gameRun.lesson,'subtle'):'')+'</div></section>';
  return '<section class="panel arcade-frame"><div class="heading"><h2>'+game.title+'</h2><div class="arcade-score"><span id="arcade-score">0</span> pts</div></div><div id="arcade-checkpoint" class="meta"></div><div class="arcade-prompt" id="arcade-prompt"></div><ul class="arcade-runes" aria-label="Answer choices">'+[...'ABCD'].map(letter=>'<li data-rune hidden><span class="rarity">'+letter+'</span><bdi lang="ar" dir="rtl"></bdi></li>').join('')+'</ul><div class="cabinet-scene"><canvas id="arcade-canvas">Use the directional buttons below to move.</canvas></div><div class="pad" aria-label="Game controls">'+[['w','◀','Move left'],['n','▲','Move up'],['s','▼','Move down'],['e','▶','Move right']].map(([key,label,desc])=>'<button type="button" data-move="'+key+'" aria-label="'+desc+'" class="btn subtle">'+label+'</button>').join('')+(game.action?'<button type="button" class="btn subtle" data-move="x">'+game.action+'</button>':'')+'<button type="button" class="btn outline" id="arcade-pause">Pause</button>'+btn('Restart','arcadereset','outline')+'</div><p id="arcade-status" class="arcade-status" role="status"></p></section>';
 }
 function report(){
@@ -94,9 +94,9 @@ function report(){
  return '<section class="panel print-sheet">'+schoolLogo()+'<p>A GIIS Student Innovation</p><h1>'+(certificate?'LUGHA achievement certificate':'LUGHA student progress report')+'</h1><p>'+escape(state.profile.name)+'</p>'+(certificate?'<ul>'+state.achievements.filter(x=>x[2]).map(x=>'<li>'+escape(x[0])+'</li>').join('')+'</ul>':'<p>'+state.completed.length+' lessons completed · '+state.xp+' XP · '+state.bosses.length+' worlds cleared</p>'+records())+btn('Print','print','outline')+'</section>';
 }
 function gameGrid(){
- return '<div class="arcade-cover panel"><h1>LUGHA Arcade</h1><p>Play. Learn. Connect.</p></div><div class="arcade-grid">'+Object.entries(cabinets).map(([id,game])=>'<article class="arcade-card panel"><div class="arcade-art '+game.colour+'"><span aria-hidden="true">'+game.icon+'</span></div><div class="arcade-info"><h3>'+game.title+'</h3><p>'+game.description+'</p>'+link('Play','arcade/'+id)+'</div></article>').join('')+'</div><h2 style="margin:20px 0 12px">Practice games</h2><div class="arcade-grid">'+games.map(([title,desc,symbol],i)=>
+ return '<section id="arcade-catalogue" aria-labelledby="arcade-heading" style="margin-top:24px"><div class="arcade-cover panel"><h2 id="arcade-heading" tabindex="-1">LUGHA Arcade</h2><p>Play. Learn. Connect.</p></div><div class="arcade-grid">'+Object.entries(cabinets).map(([id,game])=>'<article class="arcade-card panel"><div class="arcade-art '+game.colour+'"><span aria-hidden="true">'+game.icon+'</span></div><div class="arcade-info"><h3>'+game.title+'</h3><p>'+game.description+'</p>'+link('Play','arcade/'+id)+'</div></article>').join('')+'</div><h2 style="margin:20px 0 12px">Practice games</h2><div class="arcade-grid">'+games.map(([title,desc,symbol],i)=>
  '<article class="arcade-card panel"><div class="arcade-art '+worlds[i%8][3]+'"><span aria-hidden="true">'+symbol+'</span></div><div class="arcade-info"><h3>'+title+'</h3><p>'+desc+'</p>'+link(i===11?'Choose a world':'Play','game/'+i,'subtle small')+'</div></article>'
- ).join('')+'</div>';
+ ).join('')+'</div></section>';
 }
 function home(){
  const next=recommended();
@@ -124,7 +124,7 @@ function soundButtons(value){
 function gamePage(){
  const index=Number(args[0]),g=games[index];
  if(!g||index===11)return intro('Boss Battle','Complete a world’s lessons before taking its boss challenge.')+link('View adventure map','adventure');
- return '<section class="panel activity">'+link('Back to Mini-Games','games','outline small')+'<p class="tile-icon art-chip">'+g[2]+'</p><h2>'+g[0]+'</h2><p>'+g[1]+'</p><form id="game-form"><label>Difficulty<select name="difficulty">'+opts(['Gentle','Standard','Challenge'],state.profile.mode==='Normal'?'Standard':'Gentle')+'</select></label>'+(index===4?'<label>Format<select name="format">'+opts(['Audio','Text'],'Audio')+'</select></label>':'')+'<button class="btn">Play</button></form></section>';
+ return '<section class="panel activity">'+link('Back to games','videos/games','outline small')+'<p class="tile-icon art-chip">'+g[2]+'</p><h2>'+g[0]+'</h2><p>'+g[1]+'</p><form id="game-form"><label>Difficulty<select name="difficulty">'+opts(['Gentle','Standard','Challenge'],state.profile.mode==='Normal'?'Standard':'Gentle')+'</select></label>'+(index===4?'<label>Format<select name="format">'+opts(['Audio','Text'],'Audio')+'</select></label>':'')+'<button class="btn">Play</button></form></section>';
 }
 async function start(kind,target,difficulty,visual=false){
  const active=await api('attempt',{kind,target:String(target),difficulty:difficulty||(state.profile.mode==='Normal'?'Standard':'Gentle'),visual});
@@ -144,7 +144,7 @@ function victory(r){
  return '<div class="victory-stars" aria-label="'+stars+' out of 3 stars"><span aria-hidden="true">'+'★'.repeat(stars)+'☆'.repeat(3-stars)+'</span></div>'+(r.bestCombo>=2?'<p class="combo-badge">Best combo ×'+r.bestCombo+'</p>':'');
 }
 function activityPage(){
- if(!round)return intro('Choose a practice activity','Open a lesson or pick a mini-game.')+link('Explore the mini-games','games');
+ if(!round)return intro('Choose a practice activity','Open a lesson or pick a mini-game.')+link('Explore the mini-games','videos/games');
  const r=round,q=r.next;
  const title=({lesson:lessons.find(x=>x.id===r.target)?.title,game:games[r.target]?.[0],boss:'World challenge',revision:'Revision mission',writing:'Writing check',video:'Video knowledge check',placement:'Placement quiz'})[r.kind];
  if(r.recommendation)return '<section class="panel activity"><h2>Suggested starting level</h2><p>'+escape(r.recommendation)+' · '+r.score+'% score</p><p>Choose this level to personalise Layla and save it in your profile. Adventure worlds still unlock through practice.</p><div class="row">'+btn('Use suggested level','placementlevel')+link('Return to Settings','settings','outline')+'</div></section>';
@@ -194,7 +194,7 @@ const lessonGame = lesson=>['maze','dash','snake','blocks','ninja','quest','cros
 const gameForLesson = lesson=>'arcade/'+lessonGame(lesson)+'/'+lesson.world+'/'+lesson.id;
 const assignmentRoute = value=>/^(arcade|videos)\//.test(value)?escape(value):'lesson/'+escape(value);
 function videosPage(){
- if(!args[0])return intro('Video Learning Centre','Watch original narrated slide lessons at your own pace, then check your understanding.')+'<div class="grid">'+worlds.map((world,i)=>{const lesson=lessons.find(x=>x.world===i);return card(icon('video'),world[0],escape(lesson.title)+' · '+(lesson.items.length*6)+' seconds',link('Watch lesson','videos/'+lesson.id,'subtle'),world[3]);}).join('')+'</div>';
+ if(!args[0]||args[0]==='games')return intro('Videos & Games','Watch narrated lessons at your own pace, then practise in the Arcade.')+'<div class="row keypad">'+link('Jump to games','videos/games','outline small')+'</div><div class="grid">'+worlds.map((world,i)=>{const lesson=lessons.find(x=>x.world===i);return card(icon('video'),world[0],escape(lesson.title)+' · '+(lesson.items.length*6)+' seconds',link('Watch lesson','videos/'+lesson.id,'subtle'),world[3]);}).join('')+'</div>'+gameGrid();
  const lesson=lessons.find(x=>x.id===args[0]);
  if(!lesson)return intro('Video unavailable','Choose another video lesson.');
  if(video?.id!==lesson.id)video={id:lesson.id,index:0,visited:new Set([0]),running:false};
@@ -270,7 +270,7 @@ function onboarding(){
 function render(){
  if(!state)return;
  apply();chrome();
- const views={home:state.role==='parent'?parentPage:state.role==='teacher'?teacherPage:home,adventure:()=>intro('The World of LUGHA','Complete each world’s lessons and boss challenge to unlock the next stop.')+'<div class="panel world-list">'+worlds.map(worldRow).join('')+'</div>',world:worldPage,lesson:lessonPage,games:gameGrid,game:gamePage,arcade:arcadePage,about,report,activity:activityPage,tutor:tutorPage,writing:writingPage,videos:videosPage,revision,progress:progressPage,materials,rewards,settings:settingsPage,parent:parentPage,teacher:state.role==='teacher'?teacherPage:null,admin:state.role==='admin'?adminPage:null,more:()=>intro('Explore LUGHA','Find a learning activity or manage your account.')+'<div class="grid two">'+nav.concat(state.role==='parent'?[['parent','Family progress','chart']]:state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]).map(([url,title,symbol])=>link(icon(symbol)+' '+title,url,'outline')).join('')+'</div>'};
+ const views={home:state.role==='parent'?parentPage:state.role==='teacher'?teacherPage:home,adventure:()=>intro('The World of LUGHA','Complete each world’s lessons and boss challenge to unlock the next stop.')+'<div class="panel world-list">'+worlds.map(worldRow).join('')+'</div>',world:worldPage,lesson:lessonPage,game:gamePage,arcade:arcadePage,about,report,activity:activityPage,tutor:tutorPage,writing:writingPage,videos:videosPage,revision,progress:progressPage,materials,rewards,settings:settingsPage,parent:parentPage,teacher:state.role==='teacher'?teacherPage:null,admin:state.role==='admin'?adminPage:null,more:()=>intro('Explore LUGHA','Find a learning activity or manage your account.')+'<div class="grid two">'+nav.concat(state.role==='parent'?[['parent','Family progress','chart']]:state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]).map(([url,title,symbol])=>link(icon(symbol)+' '+title,url,'outline')).join('')+'</div>'};
  disposeArcade();
  const demoBanner=state.demo?'<aside class="panel preview-banner"><strong>Demonstration account</strong><span>Fictional records for testing.</span></aside>':'';
  const previewBanner=preview?'<aside class="panel preview-banner" aria-label="Preview mode"><strong>Guest preview</strong><span>Explore lessons and play the Arcade. Scores and settings last until you refresh.</span></aside>':'';
@@ -361,11 +361,20 @@ function routeChange(){
  if(video)video.running=false;
  clearTimeout(tracking);stopAudio();recognition?.abort();
  [route,...args]=(location.hash.slice(1)||'home').split('/');
+ if(route==='games'){route='videos';args=['games'];history.replaceState(null,'','#videos/games');}
  if(route!=='arcade'||gameRun?.config.game!==args[0])gameRun=null;
  const request=++accountRequest;
  if(state.role==='parent'&&['parent','home'].includes(route))api('parent/children').then(children=>{if(request===accountRequest&&state.role==='parent'&&['parent','home'].includes(route)){parentChildren=children;render();}}).catch(e=>notify(e.message));
  if(route==='settings')api('assignments').then(list=>{assignments=list;if(route==='settings'&&!document.activeElement?.closest('form'))render();}).catch(()=>{});
- render();main.focus({preventScroll:true});
+ render();
+ if(route==='videos'&&args[0]==='games'){
+  const heading=document.getElementById('arcade-heading');
+  heading?.focus({preventScroll:true});
+  heading?.scrollIntoView({block:'start'});
+ }else{
+  if(route==='videos')window.scrollTo(0,0);
+  main.focus({preventScroll:true});
+ }
 }
 async function action(name,raw){
  switch(name){
