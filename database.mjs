@@ -1,3 +1,4 @@
+import {createPostgres,postgresEnabled,postgresSql,postgresTransaction} from './postgres.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {DatabaseSync} from 'node:sqlite';
 
@@ -7,6 +8,7 @@ let localQueue = Promise.resolve();
 
 export async function connect(){
  if(connection)return connection;
+ if(postgresEnabled())return connection={pool:createPostgres()};
  const url=process.env.TURSO_DATABASE_URL;
  if(url){
   if(!process.env.TURSO_AUTH_TOKEN)throw Error('TURSO_AUTH_TOKEN is required.');
@@ -23,7 +25,15 @@ export async function connect(){
  return connection;
 }
 async function statement(sql,args,write){
- const {remote,local}=await connect();
+ const {remote,local,pool}=await connect();
+ if(pool){
+  const execute=async client=>{
+   const result=await client.query(postgresSql(sql),args);
+   return {rows:result.rows,rowsAffected:result.rowCount};
+  };
+  const client=inTransaction.getStore();
+  return client?execute(client):postgresTransaction(pool,execute,write||/^\s*(INSERT|UPDATE|DELETE)/i.test(sql));
+ }
  if(remote)return (inTransaction.getStore()||remote).execute({sql,args});
  const execute=()=>{
   const stmt=local.prepare(sql);
@@ -38,7 +48,10 @@ export const one=async(sql,...args)=>(await query(sql,...args))[0];
 export const run=async(sql,...args)=>({changes:(await statement(sql,args,true)).rowsAffected});
 
 export async function batch(statements){
- const {remote,local}=await connect();
+ const {remote,local,pool}=await connect();
+ if(pool)return transact(async()=>{
+  for(const entry of statements)await run(entry.sql,...entry.args);
+ });
  if(remote)return remote.batch(statements,'write');
  return transact(async()=>{
   for(const entry of statements){
@@ -48,7 +61,8 @@ export async function batch(statements){
  });
 }
 export async function transact(fn){
- const {remote,local}=await connect();
+ const {remote,local,pool}=await connect();
+ if(pool)return postgresTransaction(pool,client=>inTransaction.run(client,fn));
  if(remote){
   const tx=await remote.transaction('write');
   try{

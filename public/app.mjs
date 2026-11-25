@@ -198,9 +198,14 @@ function videosPage(){
  if(!args[0]||args[0]==='games')return intro('Videos & Games','Watch narrated lessons at your own pace, then practise in the Arcade.')+'<div class="row keypad">'+link('Jump to games','videos/games','outline small')+'</div><div class="grid">'+worlds.map((world,i)=>{const lesson=lessons.find(x=>x.world===i);return card(icon('video'),world[0],escape(lesson.title)+' · '+(lesson.items.length*6)+' seconds',link('Watch lesson','videos/'+lesson.id,'subtle'),world[3]);}).join('')+'</div>'+gameGrid();
  const lesson=lessons.find(x=>x.id===args[0]);
  if(!lesson)return intro('Video unavailable','Choose another video lesson.');
- if(video?.id!==lesson.id)video={id:lesson.id,index:0,visited:new Set([0]),running:false};
+ if(video?.id!==lesson.id){
+  const saved=state.viewing?.find(x=>x.lesson===lesson.id);
+  const start=saved?Math.min(saved.slide,lesson.items.length-1):0;
+  video={id:lesson.id,index:start,visited:new Set(saved?JSON.parse(saved.visited):[0]),running:false};
+  saveVideoSlide(video.id,start);
+ }
  const item=lesson.items[video.index];
- return '<section class="panel activity lesson-journey">'+link('All video lessons','videos','outline small')+'<p class="label">Watch · Play · Review</p>'+'<p class="meta">Slide '+(video.index+1)+' of '+lesson.items.length+'</p><h2>'+escape(lesson.title)+'</h2><div class="video-stage"><bdi class="ar big" dir="rtl" lang="ar">'+escape(item.ar)+'</bdi><strong>'+escape(item.en)+'</strong><span>'+escape(item.say)+'</span></div><div class="row keypad">'+btn(video.running?'Pause slides':video.ended?'Replay slides':'Play slides','video-play','subtle')+btn('Previous slide','video-prev','outline')+btn('Next slide','video-next','outline')+soundButtons(item.ar)+'</div><div class="row"><label>Video pace<select id="video-pace">'+[.5,.75,1,1.25,1.5].map(rate=>'<option value="'+rate+'" '+(rate===(video.speed??state.profile.videoSpeed??1)?'selected':'')+'>'+rate+'×</option>').join('')+'</select></label></div><details><summary>Read the transcript</summary><ol>'+lesson.items.map(x=>'<li>'+ar(x.ar)+' · '+escape(x.en)+'</li>').join('')+'</ol></details><p>Captions stay on screen. You can read through each slide at your own pace.</p>'+(video.visited.size===lesson.items.length?'<div class="row">'+link('Play Game',gameForLesson(lesson))+(!preview?btn('Record video knowledge check','start:video:'+lesson.id,'outline'):'')+'</div>':'')+'</section>';
+ return '<section class="panel activity lesson-journey">'+link('All video lessons','videos','outline small')+'<p class="label">Watch · Play · Review</p>'+'<p class="meta">Slide '+(video.index+1)+' of '+lesson.items.length+'</p><h2>'+escape(lesson.title)+'</h2><div class="video-stage"><bdi class="ar big" dir="rtl" lang="ar">'+escape(item.ar)+'</bdi><strong>'+escape(item.en)+'</strong><span>'+escape(item.say)+'</span></div><div class="row keypad">'+btn(video.running?'Pause slides':video.ended?'Replay slides':'Play slides','video-play','subtle')+btn('Previous slide','video-prev','outline')+btn('Next slide','video-next','outline')+soundButtons(item.ar)+'</div><div class="row"><label>Video pace<select id="video-pace">'+[.5,.75,1,1.25,1.5].map(rate=>'<option value="'+rate+'" '+(rate===(video.speed??state.profile.videoSpeed??1)?'selected':'')+'>'+rate+'×</option>').join('')+'</select></label></div><details><summary>Read the transcript</summary><ol>'+lesson.items.map(x=>'<li>'+ar(x.ar)+' · '+escape(x.en)+'</li>').join('')+'</ol></details><p>Captions stay on screen. You can read through each slide at your own pace.</p>'+(video.visited.size===lesson.items.length?'<div class="row">'+link('Play Game',gameForLesson(lesson),'video-game-ready')+(!preview?btn('Record video knowledge check','start:video:'+lesson.id,'outline'):'')+'</div>':'')+'</section>';
 }
 function revision(){
  const words=lessons.flatMap(x=>x.items);
@@ -223,7 +228,7 @@ function parentPage(){
  if(state.role!=='parent')return intro('Family progress','Sign in with an authorised parent account.')+btn('School sign-in','account');
  const children=parentChildren;
  const child=children.find(x=>x.id===parentChild)||children[0];
- return schoolLogo()+intro('Family progress','View learning progress for students linked to your account.')+'<section class="panel" id="family-content">'+(!child?'<p>No linked students are available.</p>':'<label>Student<select id="parent-child">'+children.map(x=>'<option value="'+escape(x.id)+'" '+(x.id===child.id?'selected':'')+'>'+escape(x.name)+'</option>').join('')+'</select></label><h2 style="margin-top:18px">'+escape(child.name)+'</h2><p>'+escape(child.grade||'')+'</p><div class="grid">'+card('▤','Lessons',child.lessons)+card('▶','Video checks',child.videos)+card('✦','XP',child.xp)+'</div><h3 style="margin-top:16px">Arcade records</h3>'+(child.games.map(x=>'<p>'+escape(cabinets[x.game]?.title||x.game)+' · '+x.score+' points · '+x.accuracy+'% accuracy</p>').join('')||'<p>No completed Arcade rounds yet.</p>')+'<h3>Next step</h3><p>'+escape(child.recommendation)+'</p>')+'</section>';
+ return schoolLogo()+intro('Family progress','View learning progress for students linked to your account.')+'<section class="panel" id="family-content">'+(!child?'<p>No linked students are available.</p>':'<label>Student<select id="parent-child">'+children.map(x=>'<option value="'+escape(x.id)+'" '+(x.id===child.id?'selected':'')+'>'+escape(x.name)+'</option>').join('')+'</select></label><h2 style="margin-top:18px">'+escape(child.name)+'</h2><p>'+escape(child.grade||'')+'</p><div class="grid">'+card('▤','Lessons',child.lessons)+card('▶','Video checks',child.videos)+card('✦','XP',child.xp)+'</div><h3 style="margin-top:16px">Arcade records</h3>'+(child.games.map(x=>'<p>'+escape(cabinets[x.game]?.title||x.game)+' · '+x.score+' points · '+x.accuracy+'% accuracy</p>').join('')||'<p>No completed Arcade rounds yet.</p>')+'<h3>Curriculum progress</h3><p>'+child.lessons+' of '+child.total+' lessons completed</p>'+progress(child.total?100*child.lessons/child.total:0,'Curriculum progress')+'<h3>Recent learning</h3>'+(child.recent.map(entry=>'<p>'+escape(lessons.find(x=>x.id===entry.target)?.title||cabinets[entry.target]?.title||entry.kind)+' · '+escape(entry.at.slice(0,10))+'</p>').join('')||'<p>No activity yet.</p>')+'<h3>Next step</h3><p>'+escape(child.recommendation)+'</p>')+'</section>';
 }
 function preferenceForm(onboarding=false){
  const p=state.profile;
@@ -293,20 +298,55 @@ async function loadClasses(){
  $('#class-list').innerHTML=rooms.length?rooms.map(x=>'<p>'+escape(x.name)+' '+btn('Open','room:'+x.id,'outline small')+'</p>').join(''):'<p>You have no classrooms yet.</p>';
 }
 async function showRoom(room){
- const [report,rooms,classWork]=await Promise.all([api('classroom/report',{room}),api('classrooms'),api('classroom/assignments',{room})]);
+ const [report,rooms,classWork,learners]=await Promise.all([api('classroom/report',{room}),api('classrooms'),api('classroom/assignments',{room}),api('classroom/learning',{room})]);
  const visible=rooms.find(x=>x.id===room)?.visible;
  const node=$('#class-detail');
  if(!node)return;
  node.innerHTML='<div class="panel" style="margin-top:14px"><h2>Classroom report</h2><p>Join code <strong>'+escape(room)+'</strong></p><form id="assign-form"><input type="hidden" name="room" value="'+escape(room)+'"><label>Assignment name<input name="title" maxlength="80"></label><label>Lesson, video or arcade mission<select name="lesson">'+lessons.map(x=>'<option value="'+x.id+'">'+escape(x.title)+'</option>').join('') +lessons.map(x=>'<option value="videos/'+x.id+'">Video · '+escape(x.title)+'</option>').join('') +Object.entries(cabinets).map(([key,g])=>'<option value="arcade/'+key+'">'+g.title+'</option>').join('')+'</select></label><button class="btn">Assign activity</button></form><div class="table-wrap"><table><thead><tr><th>Learner alias</th><th>XP</th><th>Lessons</th></tr></thead><tbody>'+report.map(x=>'<tr><td>'+escape(x.alias)+'</td><td>'+x.xp+'</td><td>'+x.lessons+'</td></tr>').join('')+'</tbody></table></div><h3>Assignment completion</h3>'+(classWork.map(x=>'<p>'+escape(x.title)+' · '+x.completed+' / '+x.assigned+' learners</p>').join('')||'<p>No assignments yet.</p>')+btn('Export CSV','export:'+room,'outline small')+' '+btn(visible?'Hide classroom leaderboard':'Enable classroom leaderboard','visibility:'+room+':'+(visible?'no':'yes'),'outline small')+'</div>';
+ node.insertAdjacentHTML('beforeend','<section class="panel" style="margin-top:14px"><h3>Classroom learning overview</h3><label>Find a learner<input id="learner-filter" type="search"></label><div id="learner-list">'+(learners.map(row=>'<article class="panel" data-learner="'+escape(row.name.toLowerCase())+'"><h3>'+escape(row.name)+'</h3><p>'+escape(row.grade||'')+' · '+row.lessons+' lessons · '+row.games+' games</p><p>'+escape(row.latest?'Last activity '+row.latest.slice(0,10):'No activity yet')+'</p>'+(row.accommodations.length?'<details><summary>Authorised teaching accommodations</summary><p>'+escape(row.accommodations.join(', '))+'</p></details>':'')+'</article>').join('')||'<p>No enrolled learners yet.</p>')+'</div></section>');
+ node.querySelector('#learner-filter').addEventListener('input',event=>{
+  const term=event.currentTarget.value.trim().toLowerCase();
+  node.querySelectorAll('[data-learner]').forEach(item=>{item.hidden=!item.dataset.learner.includes(term);});
+ });
+}
+function renderSchoolAdmin(data){
+ const host=document.getElementById('school-admin-workspace');
+ if(!host)return;
+ if(!data){host.innerHTML='<p>Connect Supabase to use school account management.</p>';return;}
+ const options=role=>data.accounts.filter(x=>!role||x.role===role).map(x=>'<option value="'+escape(x.id)+'">'+escape(x.email)+' · '+escape(x.role)+'</option>').join('');
+ const select=(name,title,role)=>'<label>'+title+'<select name="'+name+'" required><option value="">Choose…</option>'+options(role)+'</select></label>';
+ const rooms='<label>Classroom<select name="room" required><option value="">Choose…</option>'+data.classes.map(x=>'<option value="'+escape(x.id)+'">'+escape(x.name)+'</option>').join('')+'</select></label>';
+ const form=(title,action,fields)=>'<details class="panel"><summary>'+title+'</summary><form class="school-admin-form"><input type="hidden" name="action" value="'+action+'">'+fields+'<button class="btn">Save</button></form></details>';
+ const role='<label>Role<select name="role"><option value="student">Student</option><option value="parent">Parent</option><option value="teacher">Teacher</option></select></label>';
+ const support=['largeText','reducedMotion','audioInstructions','shortSteps','untimed'].map((key,i)=>'<label class="check"><input type="checkbox" name="support-'+key+'">'+['Larger text','Reduced motion','Audio instructions','Short steps','Untimed games'][i]+'</label>').join('');
+ host.innerHTML='<div class="grid two">'+card('✦','Learning activity',data.stats.activities)+card('▤','Completed lessons',data.stats.lessons)+'</div><div class="grid two" style="margin:12px 0">'+
+ (!state.demo?form('Create account','create-account','<label>Name<input name="name" required></label><label>Email<input type="email" name="email" required></label>'+role+'<label>Temporary password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>'):'')+
+ form('Change account role','change-role',select('uid','Account')+role)+form('Deactivate account','disable-account',select('uid','Account'))+
+ form('Reactivate account','activate-account',select('uid','Account'))+form('Create class','create-class',select('uid','Teacher','teacher')+'<label>Class name<input name="name" required></label>')+
+ form('Assign teacher','assign-teacher',rooms+select('uid','Teacher','teacher'))+form('Enrol student','enrol-student',rooms+select('uid','Student','student'))+
+ form('Link parent','link-parent',select('parent','Parent','parent')+select('uid','Student','student'))+
+ form('Learning accommodations','save-student',select('uid','Student','student')+'<label>Grade<input name="grade"></label><label>Arabic proficiency<select name="level">'+opts(['Complete Beginner','Beginner','Intermediate','Advanced'],'Beginner')+'</select></label>'+support)+
+ '</div><section class="panel"><h3>Recent administrative changes</h3>'+(data.events.map(x=>'<p>'+escape(x.action.replaceAll('-',' '))+' · '+escape(String(x.created_at).slice(0,10))+'</p>').join('')||'<p>No changes recorded yet.</p>')+'</section>';
 }
 function adminPage(){
- return intro('Content Studio','Create and edit lesson vocabulary and review registered account roles.')+'<section class="panel"><form id="content-form"><label>Edit a lesson<select name="existing" id="existing"><option value="">New lesson</option>'+lessons.map(x=>'<option value="'+x.id+'">'+escape(x.title)+'</option>').join('')+'</select></label><label>Lesson name<input name="title" required maxlength="120"></label><label>World<select name="world">'+worlds.map((x,i)=>'<option value="'+i+'">'+x[0]+'</option>').join('')+'</select></label><label>Vocabulary (one line per item, using Arabic | English | transliteration)<textarea required name="items"></textarea></label><button class="btn">Save lesson</button></form><div id="accounts"></div></section>';
+ return intro('Content Studio','Manage school accounts, classes and Arabic learning materials.')+'<section id="school-admin-workspace" aria-label="School administration"><p>Loading school accounts…</p></section>'+'<section class="panel"><form id="content-form"><label>Edit a lesson<select name="existing" id="existing"><option value="">New lesson</option>'+lessons.map(x=>'<option value="'+x.id+'">'+escape(x.title)+'</option>').join('')+'</select></label><label>Lesson name<input name="title" required maxlength="120"></label><label>World<select name="world">'+worlds.map((x,i)=>'<option value="'+i+'">'+x[0]+'</option>').join('')+'</select></label><label>Vocabulary (one line per item, using Arabic | English | transliteration)<textarea required name="items"></textarea></label><button class="btn">Save lesson</button></form><div id="accounts"></div></section>';
 }
-function account(role=signInRole){
- signInRole=role;
- const title=role.charAt(0).toUpperCase()+role.slice(1);
- dialog.innerHTML=schoolLogo()+'<div class="heading"><h2>School sign-in</h2>'+btn('Close','closedialog','outline small')+'</div><div class="row role-switch" aria-label="Sign-in role">'+['student','parent','teacher'].map(x=>btn(x[0].toUpperCase()+x.slice(1)+' Login','loginrole:'+x,x===role?'subtle':'outline')).join('')+'</div><p>'+(preview?'School sign-in is unavailable in the public guest preview.':'Use the account assigned to you. School single sign-on is pending.')+'</p>'+(preview?'':'<form id="account-form"><input type="hidden" name="role" value="'+role+'"><label>'+title+' email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" minlength="10" maxlength="128" autocomplete="current-password" required></label><button class="btn">'+title+' Sign In</button></form>');
- if(!dialog.open)dialog.showModal();
+const signInRoles=[['student','Student','home','Learn and practise Arabic'],['parent','Parent','help','Follow your linked children'],['teacher','Teacher','video','Teach and assign work'],['admin','Administrator','settings','Manage the school workspace']];
+function account(){location.hash='login/'+signInRole;}
+function loginPage(){
+ const recovering=route==='recover';
+ const mode=recovering?'reset':args[0]==='forgot'?'forgot':'login';
+ const role=signInRoles.find(item=>item[0]===args[0])||signInRoles[0];
+ if(mode==='login')signInRole=role[0];
+ const logo=schoolLogo();
+ return '<div class="identity-layout"><section class="identity-intro">'+logo+'<p class="label">A GIIS Student Innovation</p><h1>Welcome to LUGHA</h1><p>Play. Learn. Connect.</p>'+link('Explore as a guest','home','outline')+'</section><section class="panel identity-panel">'+
+ (mode==='login'?'<h2>School sign-in</h2><p>Choose your role to continue.</p><nav class="identity-roles" aria-label="School sign-in roles">'+signInRoles.map(([id,title,symbol,desc])=>'<a href="#login/'+id+'" class="identity-role '+(role[0]===id?'selected':'')+'" '+(role[0]===id?'aria-current="page"':'')+'>'+icon(symbol)+'<strong>'+title+'</strong><small>'+desc+'</small></a>').join('')+'</nav>':'<h2>'+(mode==='forgot'?'Reset your password':'Choose a new password')+'</h2>')+
+ (preview?'<p class="identity-status" role="status">School sign-in is unavailable in the public guest preview.</p>':'<form id="account-form"><input type="hidden" name="role" value="'+role[0]+'"><input type="hidden" name="mode" value="'+mode+'">'+
+ (mode!=='reset'?'<label>School email<input name="email" type="email" autocomplete="username" required></label>':'')+
+ (mode!=='forgot'?'<label>'+(mode==='reset'?'New password':'Password')+'<input id="school-password" name="password" type="password" minlength="'+(mode==='reset'?12:10)+'" maxlength="128" autocomplete="'+(mode==='reset'?'new-password':'current-password')+'" required></label>'+btn('Show password','showpassword','outline small'):'')+
+ (mode==='login'?'<label class="check"><input name="remember" type="checkbox">Remember me on this device</label>':'')+
+ '<p id="identity-error" role="alert" hidden></p><button class="btn">'+(mode==='forgot'?'Send reset link':mode==='reset'?'Update password':'Sign in as '+role[1])+'</button></form>')+
+ (mode==='login'&&!preview?'<p><a href="#login/forgot">Forgot password?</a></p>':mode!=='login'?'<p><a href="#login/'+signInRole+'">Back to sign-in</a></p>':'')+'</section></div>';
 }
 function onboarding(){
  dialog.innerHTML='<div class="heading"><h2>Set up your adventure</h2>'+btn('Close','closedialog','outline small')+'</div><p>Choose the way you want to learn. You can change these preferences later.</p>'+preferenceForm(true);
@@ -315,7 +355,7 @@ function onboarding(){
 function render(){
  if(!state)return;
  apply();chrome();
- const views={home:state.role==='parent'?parentPage:state.role==='teacher'?teacherPage:home,adventure:()=>intro('The World of LUGHA','Complete each world’s lessons and boss challenge to unlock the next stop.')+'<div class="panel world-list">'+worlds.map(worldRow).join('')+'</div>',world:worldPage,lesson:lessonPage,game:gamePage,arcade:arcadePage,about,report,activity:activityPage,tutor:tutorPage,writing:writingPage,videos:videosPage,revision,progress:progressPage,materials,rewards,settings:settingsPage,parent:parentPage,teacher:state.role==='teacher'?teacherPage:null,admin:state.role==='admin'?adminPage:null,more:()=>intro('Explore LUGHA','Find a learning activity or manage your account.')+'<div class="grid two">'+nav.concat(state.role==='parent'?[['parent','Family progress','chart']]:state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]).map(([url,title,symbol])=>link(icon(symbol)+' '+title,url,'outline')).join('')+'</div>'};
+ const views={home:state.role==='parent'?parentPage:state.role==='teacher'?teacherPage:home,adventure:()=>intro('The World of LUGHA','Complete each world’s lessons and boss challenge to unlock the next stop.')+'<div class="panel world-list">'+worlds.map(worldRow).join('')+'</div>',world:worldPage,lesson:lessonPage,game:gamePage,arcade:arcadePage,about,report,login:loginPage,recover:loginPage,activity:activityPage,tutor:tutorPage,writing:writingPage,videos:videosPage,revision,progress:progressPage,materials,rewards,settings:settingsPage,parent:parentPage,teacher:state.role==='teacher'?teacherPage:null,admin:state.role==='admin'?adminPage:null,more:()=>intro('Explore LUGHA','Find a learning activity or manage your account.')+'<div class="grid two">'+nav.concat(state.role==='parent'?[['parent','Family progress','chart']]:state.role==='teacher'?[['teacher','Classrooms','chart']]:state.role==='admin'?[['admin','Content Studio','pen']]:[]).map(([url,title,symbol])=>link(icon(symbol)+' '+title,url,'outline')).join('')+'</div>'};
  disposeArcade();
  const demoBanner=state.demo?'<aside class="panel preview-banner"><strong>Demonstration account</strong><span>Fictional records for testing.</span></aside>':'';
  const previewBanner=preview?'<aside class="panel preview-banner" aria-label="Preview mode"><strong>Guest preview</strong><span>Explore lessons and play the Arcade. Scores and settings last until you refresh.</span></aside>':'';
@@ -328,6 +368,7 @@ function render(){
   target.innerHTML=list.length?list.map(row=>'<p>'+escape(row.name)+' · Learner '+escape(row.alias)+' · '+row.xp+' XP</p>').join(''):'<p>No shared classroom rankings are available.</p>';
  }).catch(e=>{if($('#class-rankings'))$('#class-rankings').textContent=e.message;});
  if((route==='teacher'||route==='home')&&state.role==='teacher')loadClasses().catch(e=>notify(e.message));
+ if(route==='admin')api('admin/school').then(renderSchoolAdmin).catch(e=>notify(e.message));
  if(route==='admin')api('admin').then(list=>{if($('#accounts'))$('#accounts').innerHTML='<h3 style="margin-top:14px">Registered accounts</h3>'+list.map(x=>'<p>'+escape(x.email)+' · '+escape(x.role)+'</p>').join('');}).catch(e=>notify(e.message));
 }
 function stopAudio(){
@@ -391,11 +432,22 @@ async function answer(value){
  else {r.feedback='That choice didn’t work. Take your time and try again.';}
  if(round===r&&route==='activity'){render();main.focus({preventScroll:true});}
 }
+let viewQueue=Promise.resolve();
+function saveVideoSlide(lesson,slide){
+ if(preview)return;
+ const session=state;
+ viewQueue=viewQueue.then(async()=>{
+  if(state!==session)return;
+  const result=await api('video-progress',{lesson,slide});
+  if(state===session)state.viewing=[...(state.viewing||[]).filter(item=>item.lesson!==lesson),result];
+ }).catch(()=>{});
+}
 function slide(next=0){
  if(!video||route!=='videos'||!args[0])return;
  const lesson=lessons.find(x=>x.id===video.id);
  video.index=Math.min(lesson.items.length-1,Math.max(0,video.index+next));
  video.visited.add(video.index);
+ saveVideoSlide(video.id,video.index);
  render();
  if(video.running){
   speak(lesson.items[video.index].ar);
@@ -427,7 +479,7 @@ function routeChange(){
 }
 async function action(name,raw){
  switch(name){
-  case 'loginrole':account(raw);return;
+  case 'showpassword':{const input=document.getElementById('school-password');if(input){input.type=input.type==='password'?'text':'password';document.querySelector('[data-action=showpassword]').textContent=input.type==='password'?'Show password':'Hide password';}return;}
   case 'account':account();return;
   case 'arcadereset':gameRun=null;render();return;
   case 'print':window.print();return;
@@ -506,6 +558,13 @@ document.addEventListener('submit',async event=>{
  busy=true;
  const form=event.target, data=Object.fromEntries(new FormData(form,event.submitter));
  try{
+  if(form.classList.contains('school-admin-form')){
+   data.support=Object.fromEntries(Object.keys(data).filter(key=>key.startsWith('support-')).map(key=>[key.slice(8),true]));
+   await api('admin/school',data);
+   renderSchoolAdmin(await api('admin/school'));
+   notify('School record updated.');
+   return;
+  }
   switch(form.id){
    case 'preferences':{
     const first=dialog.contains(form);
@@ -515,11 +574,26 @@ document.addEventListener('submit',async event=>{
     if(first)dialog.close();
     render();notify('Preferences saved.');break;
    }
-   case 'account-form':
-    state=await api('login',{email:data.email,password:data.password,role:data.role});
-    parentChildren=[];parentChild='';
-    dialog.close();if(state.role==='parent')location.hash='parent';else if(state.role==='teacher')location.hash='teacher';else location.hash='home';routeChange();if(state.role==='student'&&!state.profile.onboarded)onboarding();else notify('Welcome, '+state.profile.name+'!');break;
-   case 'arcade-start':{
+   case 'account-form':{
+    const message=document.getElementById('identity-error');
+    message.hidden=true;
+    try{
+     if(data.mode==='forgot'){
+      await api('recover',{email:data.email});
+      notify('If the account is eligible, a reset link will be sent.');
+     }else if(data.mode==='reset'){
+      await api('reset',{token:args[0],password:data.password});
+      location.hash='login/'+signInRole;
+      notify('Password updated. Sign in with the new password.');
+     }else{
+      state=await api('login',{email:data.email,password:data.password,role:data.role,remember:data.remember==='on'});
+      parentChildren=[];parentChild='';
+      location.hash=({parent:'parent',teacher:'teacher',admin:'admin'})[state.role]||'home';
+      routeChange();
+     }
+    }catch(e){if(message.isConnected){message.textContent=e.message;message.hidden=false;}}
+    break;
+   }   case 'arcade-start':{
     const name=args[0],world=data.world===''?null:Number(data.world);
     const result=await api('arcade/start',{game:name,difficulty:data.difficulty,world,assist:data.assist==='on',...(args[2]?{lesson:args[2]}:{})});
     result.lesson=args[2]||null;

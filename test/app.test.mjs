@@ -1,3 +1,4 @@
+import {randomBytes} from 'node:crypto';
 import { routeToRune } from './arcade.test.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +11,8 @@ import {join} from 'node:path';
 
 test('learning, account persistence and access control',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'lugha-test-')),dbPath=join(dir,'test.sqlite');
- const child=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:'0',HOST:'127.0.0.1',LUGHA_DB:dbPath,LUGHA_HTTPS:'0',LUGHA_ENABLE_DEMOS:'1',GEMINI_API_KEY:''},stdio:['ignore','pipe','inherit']});
+ const demoSecret=randomBytes(16).toString('hex');
+ const child=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:'0',HOST:'127.0.0.1',LUGHA_DB:dbPath,LUGHA_HTTPS:'0',LUGHA_ENABLE_DEMOS:'1',LUGHA_LOCAL_DEMO_PASSWORD:demoSecret,GEMINI_API_KEY:''},stdio:['ignore','pipe','inherit']});
  t.after(async()=>{const done=once(child,'exit');child.kill();await done;rmSync(dir,{recursive:true,force:true});});
  const [line]=await once(child.stdout,'data');
  const port=String(line).match(/port (\d+)/)[1];
@@ -38,7 +40,7 @@ test('learning, account persistence and access control',async t=>{
   return {attempt,result};
  };
  const demoParent=client(),demoStudent=client(),demoTeacher=client();
- const password='LughaDemo2026!';
+ const password=demoSecret;
  await demoParent('login',{email:'parent@lugha.example',password,role:'student'},403);
  assert.equal((await demoParent('login',{email:'parent@lugha.example',password,role:'parent'})).demo,true);
  const linked=await demoParent('parent/children');
@@ -55,6 +57,16 @@ test('learning, account persistence and access control',async t=>{
  await demoTeacher('classroom/assign',{room:'DEMOCLASS',lesson:'videos/l0',title:'Narrated slides'});
  assert.equal((await demoTeacher('classroom/assignments',{room:'DEMOCLASS'}))[0].assigned,2);
  await demoParent('classroom/assignments',{room:'DEMOCLASS'},403);
+ const classData=await demoTeacher('classroom/learning',{room:'DEMOCLASS'});
+ assert.equal(classData.length,2);
+ assert.ok(classData.some(student=>student.accommodations.includes('Untimed games')));
+ await demoParent('classroom/learning',{room:'DEMOCLASS'},403);
+ await demoStudent('video-progress',{lesson:'l0',slide:9},400);
+ for(let slide=0;slide<4;slide++)await demoStudent('video-progress',{lesson:'l0',slide});
+ const resumed=(await demoStudent('state')).viewing.find(item=>item.lesson==='l0');
+ assert.equal(resumed.slide,3);
+ assert.ok(resumed.completed_at);
+ await demoStudent('admin/school',undefined,403);
  const all=await user('content');
  assert.equal(new Set(all.map(x=>x.world)).size,8);
  assert.equal(all.length,50);

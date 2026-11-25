@@ -1,5 +1,8 @@
+import {adminOverview,manageSchool} from './school-admin.mjs';
+import {postgresEnabled} from './postgres.mjs';
+import {supabaseAuth,demoAllowed} from './supabase-auth.mjs';
 import { tutorTopics } from './public/tutor-topics.mjs';
-import { effectiveProfile, linkedChildren, schoolSchema, seedSchoolDemo } from './school.mjs';
+import { effectiveProfile, linkedChildren, classLearning, schoolSchema, seedSchoolDemo } from './school.mjs';
 import { cabinets } from './public/arcade-engine.mjs';
 import { arcadeSchema, arcadeService } from './arcade-service.mjs';
 import { query, one, run, batch, transact } from './database.mjs';
@@ -15,6 +18,7 @@ const schema = `
  CREATE TABLE IF NOT EXISTS content(id TEXT PRIMARY KEY,data TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,uid TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,target TEXT NOT NULL,questions TEXT NOT NULL,position INTEGER DEFAULT 0,misses INTEGER DEFAULT 0,finished INTEGER DEFAULT 0);
  CREATE TABLE IF NOT EXISTS activity(uid TEXT NOT NULL REFERENCES users(id),key TEXT NOT NULL,kind TEXT NOT NULL,target TEXT NOT NULL,xp INTEGER NOT NULL,gems INTEGER NOT NULL,at TEXT NOT NULL,score INTEGER,PRIMARY KEY(uid,key));
+ CREATE TABLE IF NOT EXISTS lesson_viewing(uid TEXT NOT NULL REFERENCES users(id),lesson TEXT NOT NULL REFERENCES content(id),slide INTEGER NOT NULL,visited TEXT NOT NULL,completed_at TEXT,PRIMARY KEY(uid,lesson));
  CREATE TABLE IF NOT EXISTS study(uid TEXT NOT NULL REFERENCES users(id),lesson TEXT NOT NULL,at TEXT NOT NULL,PRIMARY KEY(uid,lesson));
  CREATE TABLE IF NOT EXISTS mastery(uid TEXT NOT NULL REFERENCES users(id),word TEXT NOT NULL,hits INTEGER DEFAULT 0,misses INTEGER DEFAULT 0,due INTEGER NOT NULL,PRIMARY KEY(uid,word));
  CREATE TABLE IF NOT EXISTS inventory(uid TEXT NOT NULL REFERENCES users(id),item INTEGER NOT NULL,PRIMARY KEY(uid,item));
@@ -28,9 +32,9 @@ export function initialize(){
  return ready;
 }
 async function seed(){
- const statements=[...(schema+arcadeSchema+schoolSchema).split(';').map(x=>x.trim()).filter(Boolean), ...starter.map(lesson=>({sql:'INSERT OR IGNORE INTO content VALUES(?,?)',args:[lesson.id,JSON.stringify(lesson)]}))];
+ const statements=[...(postgresEnabled()?[]:(schema+arcadeSchema+schoolSchema).split(';').map(x=>x.trim()).filter(Boolean)), ...starter.map(lesson=>({sql:'INSERT OR IGNORE INTO content VALUES(?,?)',args:[lesson.id,JSON.stringify(lesson)]}))];
  await batch(statements);
- await seedSchoolDemo(defaults,passwordHash);
+ if(!postgresEnabled())await seedSchoolDemo(defaults,passwordHash);
 }
 const id = ()=>randomBytes(24).toString('hex');
 const hash = value=>createHash('sha256').update(value).digest('hex');
@@ -57,10 +61,10 @@ async function getUser(req){
  const token=/\blugha=([a-f0-9]{48})(?:;|$)/.exec(req.headers.cookie||'')?.[1];
  return token && one('SELECT users.* FROM sessions JOIN users ON users.id=sessions.uid WHERE token=? AND expires>?',hash(token),Date.now());
 }
-async function session(res,uid){
+async function session(res,uid,remember=true){
  const token=id();
- await run('INSERT INTO sessions VALUES(?,?,?)',hash(token),uid,Date.now()+30*86400000);
- res.setHeader('Set-Cookie','lugha='+token+'; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000'+((process.env.LUGHA_HTTPS==='1'||process.env.VERCEL)?'; Secure':''));
+ await run('INSERT INTO sessions VALUES(?,?,?)',hash(token),uid,Date.now()+(remember?30*86400000:12*3600000));
+ res.setHeader('Set-Cookie','lugha='+token+'; Path=/; HttpOnly; SameSite=Lax'+(remember?'; Max-Age=2592000':'')+((process.env.LUGHA_HTTPS==='1'||process.env.VERCEL)?'; Secure':''));
 }
 async function limit(key,max,ms){
  const now=Date.now();
@@ -127,7 +131,7 @@ async function state(user){
  ];
  const week=weekOf(Date.now());
  const weeklyCount=activity.filter(x=>x.kind==='lesson'&&weekOf(x.at)===week).length;
- return {arcadeBests,weeklyCount,week,journeys:await query('SELECT lesson,score,accuracy,completed_at FROM learning_journeys WHERE uid=? AND completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 30',user.id),profile:await effectiveProfile(user),role:user.role,demo:user.id.startsWith('demo-'),guest:!user.email,activity,completed,bosses,days:[...past],streak,longest,mastery,xp,gems,level,next:ranks[level+1]||null,base:ranks[level],achievements,inventory:(await query('SELECT item FROM inventory WHERE uid=?',user.id)).map(x=>x.item),study:await query('SELECT lesson,at FROM study WHERE uid=? ORDER BY at DESC',user.id),daily:activity.some(x=>x.key==='quest:'+today()),dailyCount:activity.filter(x=>x.kind==='lesson'&&dayOf(x.at)===today()).length,ai:!!process.env.GEMINI_API_KEY};
+ return {viewing:await query('SELECT lesson,slide,visited,completed_at FROM lesson_viewing WHERE uid=?',user.id),arcadeBests,weeklyCount,week,journeys:await query('SELECT lesson,score,accuracy,completed_at FROM learning_journeys WHERE uid=? AND completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 30',user.id),profile:await effectiveProfile(user),role:user.role,demo:!!user.demo||user.id.startsWith('demo-'),guest:!user.email,activity,completed,bosses,days:[...past],streak,longest,mastery,xp,gems,level,next:ranks[level+1]||null,base:ranks[level],achievements,inventory:(await query('SELECT item FROM inventory WHERE uid=?',user.id)).map(x=>x.item),study:await query('SELECT lesson,at FROM study WHERE uid=? ORDER BY at DESC',user.id),daily:activity.some(x=>x.key==='quest:'+today()),dailyCount:activity.filter(x=>x.kind==='lesson'&&dayOf(x.at)===today()).length,ai:!!process.env.GEMINI_API_KEY};
 }
 async function openWorld(uid,index){
  return index===0||!!(await one('SELECT 1 FROM activity WHERE uid=? AND key=?',uid,'boss:'+(index-1)));
@@ -255,12 +259,13 @@ async function teacherRoom(uid,room){
 }
 export async function api(req,res,path){
  if(req.method==='GET'&&path==='/api/branding')return {logo:arcade.logo};
- if(process.env.VERCEL&&(!process.env.TURSO_DATABASE_URL||!process.env.TURSO_AUTH_TOKEN)){
+ if(process.env.VERCEL&&!postgresEnabled()&&(!process.env.TURSO_DATABASE_URL||!process.env.TURSO_AUTH_TOKEN)){
   if(req.method==='GET'&&path==='/api/state')return {preview:true};
   fail(503,'Saved learning is temporarily unavailable while the school database is being connected.');
  }
  await initialize();
  let user=await getUser(req);
+ if(user&&(user.disabled_at||user.demo&&!demoAllowed(req.headers.host)))user=null;
  if(req.method==='GET'){
   if(path==='/api/state')return user?state(user):null;
   if(path==='/api/content')return curriculum();
@@ -276,7 +281,8 @@ export async function api(req,res,path){
   `,user.id);
   if(path==='/api/parent/children'){if(user.role!=='parent')fail(403,'Parent access required.');return linkedChildren(user.id);}
   if(path==='/api/assignments')return query('SELECT assignments.*,classrooms.name FROM assignments JOIN classrooms ON classrooms.id=assignments.room JOIN members ON members.room=classrooms.id WHERE members.uid=?',user.id);
-  if(path==='/api/admin'&&user.role==='admin')return query('SELECT email,role FROM users WHERE email IS NOT NULL');
+  if(path==='/api/admin/school'){if(user.role!=='admin')fail(403,'Administrator access required.');if(!postgresEnabled())return null;return adminOverview(user);}
+  if(path==='/api/admin'&&user.role==='admin')return postgresEnabled()?query('SELECT email,role FROM users WHERE email IS NOT NULL AND demo=?',!!user.demo):query('SELECT email,role FROM users WHERE email IS NOT NULL');
   fail(404,'Page unavailable.');
  }
  if(req.method!=='POST')fail(405,'Method unavailable.');
@@ -291,12 +297,46 @@ export async function api(req,res,path){
   await session(res,uid);
   return state(await one('SELECT * FROM users WHERE id=?',uid));
  }
+ if(path==='/api/recover'){
+  if(!postgresEnabled())fail(503,'Password recovery is unavailable on this deployment.');
+  await limit('recover:'+req.socket.remoteAddress,4,900000);
+  const email=text(body.email,254).toLowerCase();
+  if(!/^[^ @]+@[^ @]+\.[^ @]+$/.test(email))fail(400,'Enter your school email address.');
+  const registered=await one('SELECT demo,disabled_at FROM users WHERE email=?',email);
+  if(registered&&!registered.demo&&!registered.disabled_at){
+   const result=await supabaseAuth('recover',{data:{email}});
+   if(result.status>=500)fail(502,'Password recovery is temporarily unavailable.');
+  }
+  return {sent:true};
+ }
+ if(path==='/api/reset'){
+  if(!postgresEnabled())fail(503,'Password recovery is unavailable on this deployment.');
+  await limit('reset:'+req.socket.remoteAddress,6,900000);
+  const token=text(body.token,256), password=body.password;
+  if(!/^[a-zA-Z0-9_-]{20,256}$/.test(token)||typeof password!=='string'||password.length<12||password.length>128)fail(400,'Use a valid link and a password of at least 12 characters.');
+  const verification=await supabaseAuth('verify',{data:{token_hash:token,type:'recovery'}});
+  if(!verification.ok||!verification.data.access_token||!verification.data.user?.id)fail(400,'This recovery link has expired or already been used.');
+  const account=await one('SELECT id,demo,disabled_at FROM users WHERE auth_id=?',verification.data.user.id);
+  if(!account||account.demo||account.disabled_at)fail(403,'This account cannot be reset.');
+  const result=await supabaseAuth('user',{method:'PUT',token:verification.data.access_token,data:{password}});
+  if(!result.ok)fail(400,'Supabase could not update that password.');
+  await run('DELETE FROM sessions WHERE uid=?',account.id);
+  return {reset:true};
+ }
  if(path==='/api/login'||path==='/api/register'){
   await limit('auth:'+req.socket.remoteAddress,20,900000);
   const email=text(body.email,254).toLowerCase(), password=body.password;
   if(!/^[^ @]+@[^ @]+\.[^ @]+$/.test(email)||typeof password!=='string'||password.length<10||password.length>128)fail(400,'Enter a valid email and a password of 10–128 characters.');
-  let account=await one('SELECT * FROM users WHERE email=?',email);
-  if(path.endsWith('register')){
+  let account;
+  if(postgresEnabled()){
+   if(path.endsWith('register'))fail(403,'Accounts are created by authorised school administrators.');
+   const identity=await supabaseAuth('token?grant_type=password',{data:{email,password}});
+   if(identity.status>=500)fail(502,'The school sign-in service is temporarily unavailable.');
+   if(!identity.ok||!identity.data.user?.id)fail(401,'The email or password is incorrect.');
+   account=await one('SELECT * FROM users WHERE auth_id=?',identity.data.user.id);
+   if(!account||account.disabled_at||(account.demo||email.endsWith('@lugha.example'))&&!demoAllowed(req.headers.host))fail(403,'This account is unavailable on this deployment.');
+  }else if(path.endsWith('register')){
+   account=await one('SELECT * FROM users WHERE email=?',email);
    if(account)fail(409,'This email already has an account.');
    const uid=user&&!user.email?user.id:id();
    const encoded=passwordHash(password);
@@ -304,13 +344,14 @@ export async function api(req,res,path){
    else await run('INSERT INTO users VALUES(?,?,?,?,?)',uid,email,encoded,'student',JSON.stringify(defaults));
    account=await one('SELECT * FROM users WHERE id=?',uid);
   }else{
+   account=await one('SELECT * FROM users WHERE email=?',email);
    const stored=account?.password||'unregistered:'+Buffer.alloc(64).toString('hex');
    const [salt]=stored.split(':');
    if(!timingSafeEqual(Buffer.from(stored.split(':')[1],'hex'),Buffer.from(passwordHash(password,salt).split(':')[1],'hex'))||!account)fail(401,'The email or password is incorrect.');
   }
   if(path.endsWith('login')&&body.role!==undefined&&body.role!==account.role&&!(body.role==='teacher'&&account.role==='admin'))fail(403,'Use the sign-in option assigned to your account.');
   if(user){const token=/\blugha=([a-f0-9]{48})/.exec(req.headers.cookie)?.[1];if(token)await run('DELETE FROM sessions WHERE token=?',hash(token));}
-  await session(res,account.id);
+  await session(res,account.id,body.remember===true);
   return state(account);
  }
  if(!user)fail(401,'Sign in to continue.');
@@ -329,6 +370,19 @@ export async function api(req,res,path){
   if(!lesson||!(await openWorld(user.id,lesson.world)))fail(403,'This lesson is locked.');
   await run('INSERT INTO study VALUES(?,?,?) ON CONFLICT(uid,lesson) DO UPDATE SET at=excluded.at',user.id,lesson.id,new Date().toISOString());
   return state(user);
+ }
+ if(path==='/api/video-progress'){
+  const lesson=(await curriculum()).find(item=>item.id===body.lesson);
+  if(!lesson||!(await openWorld(user.id,lesson.world)))fail(403,'This lesson is locked.');
+  if(!Number.isInteger(body.slide)||body.slide<0||body.slide>=lesson.items.length)fail(400,'Choose a valid slide.');
+  return transact(async()=>{
+   const previous=await one('SELECT visited,completed_at FROM lesson_viewing WHERE uid=? AND lesson=?',user.id,lesson.id);
+   const visited=[...new Set([...(previous?JSON.parse(previous.visited):[]).filter(index=>index<lesson.items.length),body.slide])];
+   const completed=previous?.completed_at||(visited.length===lesson.items.length?new Date().toISOString():null);
+   const entry={lesson:lesson.id,slide:body.slide,visited:JSON.stringify(visited),completed_at:completed};
+   await run('INSERT INTO lesson_viewing VALUES(?,?,?,?,?) ON CONFLICT(uid,lesson) DO UPDATE SET slide=excluded.slide,visited=excluded.visited,completed_at=excluded.completed_at',user.id,entry.lesson,entry.slide,entry.visited,entry.completed_at);
+   return entry;
+  });
  }
  if(path==='/api/arcade/start'){
   await limit('arcade-start:'+user.id,35,60000);
@@ -417,6 +471,7 @@ export async function api(req,res,path){
    await run('INSERT INTO assignments VALUES(?,?,?,?)',id(),room.id,body.lesson,text(body.title,80)||'Lesson assignment');
    return {saved:true};
   }
+  if(path==='/api/classroom/learning')return classLearning(room.id);
   if(path==='/api/classroom/assignments'){
    return query(`
     SELECT a.id,a.title,a.lesson,COUNT(m.uid) AS assigned,COUNT(CASE WHEN EXISTS(
@@ -434,6 +489,11 @@ export async function api(req,res,path){
    return {saved:true};
   }
   return query(`SELECT substr(m.uid,1,8) AS alias, COALESCE(SUM(a.xp),0) AS xp, COUNT(CASE WHEN a.kind='lesson' THEN 1 END) AS lessons FROM members m LEFT JOIN activity a ON a.uid=m.uid WHERE room=? GROUP BY m.uid ORDER BY xp DESC`,room.id);
+ }
+ if(path==='/api/admin/school'){
+  if(user.role!=='admin')fail(403,'Administrator access required.');
+  if(!postgresEnabled())fail(503,'Connect Supabase to manage school accounts.');
+  return manageSchool(user,body,defaults,fail);
  }
  if(path==='/api/admin/lesson'){
   if(user.role!=='admin')fail(403,'Administrator permissions required.');

@@ -42,13 +42,35 @@ export async function linkedChildren(parent){
   COALESCE(SUM(xp),0) AS xp FROM activity WHERE uid=?`,child.id);
   const games=await query('SELECT game,score,accuracy FROM arcade_bests WHERE uid=? ORDER BY score DESC',child.id);
   const needsPractice=await one('SELECT COUNT(*) AS count FROM mastery WHERE uid=? AND misses>hits',child.id);
-  return {id:child.id,name:display.name,grade:child.grade,...counts,games,recommendation:needsPractice.count?'Review difficult words and try another practice round.':'Continue with the next lesson and its Arcade challenge.'};
+  const recent=await query("SELECT kind,target,at FROM activity WHERE uid=? AND kind IN ('lesson','video','arcade','writing','boss') ORDER BY at DESC LIMIT 6",child.id);
+  const total=(await one('SELECT COUNT(*) AS count FROM content')).count;
+  return {id:child.id,name:display.name,grade:child.grade,...counts,total,games,recent,recommendation:needsPractice.count?'Review difficult words and try another practice round.':'Continue with the next lesson and its Arcade challenge.'};
  }));
+}
+export async function classLearning(room){
+ const students=await query(`
+  SELECT u.id,u.profile,s.grade,s.support
+  FROM members m JOIN users u ON u.id=m.uid AND u.role='student'
+  LEFT JOIN school_students s ON s.uid=u.id WHERE m.room=?
+ `,room);
+ const summary=await query(`
+  SELECT m.uid,COUNT(CASE WHEN a.kind='lesson' THEN 1 END) AS lessons,
+   COUNT(CASE WHEN a.kind='arcade' THEN 1 END) AS games,MAX(a.at) AS latest
+  FROM members m LEFT JOIN activity a ON a.uid=m.uid WHERE m.room=? GROUP BY m.uid
+ `,room);
+ const progress=new Map(summary.map(entry=>[entry.uid,entry]));
+ return students.map(({id,profile,grade,support})=>{
+  const settings=JSON.parse(support||'{}');
+  return {name:JSON.parse(profile).name,grade,lessons:progress.get(id)?.lessons||0,games:progress.get(id)?.games||0,latest:progress.get(id)?.latest,
+   accommodations:[['largeText','Larger text'],['reducedMotion','Reduced motion'],['audioInstructions','Audio instructions'],['shortSteps','Short steps'],['untimed','Untimed games']].filter(([key])=>settings[key]===true).map(([,title])=>title)};
+ });
 }
 export async function seedSchoolDemo(defaults,passwordHash){
  if(process.env.LUGHA_ENABLE_DEMOS!=='1'||process.env.VERCEL)return;
  if(await one("SELECT 1 FROM users WHERE id='demo-teacher'"))return;
- const password=passwordHash('LughaDemo2026!');
+ const secret=process.env.LUGHA_LOCAL_DEMO_PASSWORD;
+ if(!secret||secret.length<10)throw Error('Set a local demo password of at least 10 characters.');
+ const password=passwordHash(secret);
  await transact(async()=>{
   const accounts=[
    ['demo-student','student','Amina (fictional)'],

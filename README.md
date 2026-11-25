@@ -64,14 +64,30 @@ The current cabinets are compact takes on the brief. Snake uses vocabulary runes
 
 ## School portals and demonstration accounts
 
-The live guest preview keeps sign-in and shared school records disabled until a production database is added. To test the three authenticated portals locally, set `LUGHA_ENABLE_DEMOS=1` and run the app using a fresh local database. The server seeds fictional learners and links once. Demo seeding is disabled on Vercel.
+The live guest preview keeps sign-in and shared school records disabled until a production database is added. To test the three authenticated portals locally, set `LUGHA_ENABLE_DEMOS=1` and `LUGHA_LOCAL_DEMO_PASSWORD`, then run the app using a fresh local database. The server seeds fictional learners and links once. Demo seeding is disabled on Vercel.
 
-| Portal | Email | Demo password |
-| --- | --- | --- |
-| Student | `student@lugha.example` | `LughaDemo2026!` |
-| Parent | `parent@lugha.example` | `LughaDemo2026!` |
-| Teacher | `teacher@lugha.example` | `LughaDemo2026!` |
+The optional local SQLite demo uses the operator-supplied `LUGHA_LOCAL_DEMO_PASSWORD`.
 
 The server-only `school.mjs` module reads authorised student profiles and parent links. A future school integration must provide documented identity claims or an SSO provider, authorised roster and relationship exports or APIs, and permission to ingest the specific teaching accommodations required. Map school learner identifiers to LUGHA account IDs. Keep parent links and teacher classroom assignments server-managed, and import only functional preferences such as larger text and untimed practice. School credentials and roster data must never be placed in client code or source control.
 
 Bolt's narrated transcript approach now links lesson content to its related arcade game. With a database, the video knowledge check and the lesson-linked arcade results are recorded separately. The tutor uses the existing server Gemini key with structured Arabic examples, pronunciation and translations. Browser audio support still depends on the device.
+
+## Supabase setup
+
+1. Create or select your authorised Supabase **school project**. In its SQL Editor, run [the LUGHA migration](supabase/migrations/202611250001_lugha.sql). It is repeatable and does not delete data. The private `lugha` schema has row-level security enabled and no browser grants. The LUGHA API enforces role and relationship permissions.
+2. In Supabase **Authentication → Providers → Email**, enable email/password and disable public sign-ups. Set the **Site URL** to your exact approved LUGHA domain. Under **Authentication → Email Templates → Reset Password**, link to `{{ .SiteURL }}/#recover/{{ .TokenHash }}`. Configure a school SMTP sender before relying on recovery email.
+3. In **Vercel → lugha-giis → Settings → Environment Variables**, set these in **Production**. Use a separate project and distinct credentials for Preview.
+   - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from the Supabase project settings.
+   - `SUPABASE_DATABASE_URL` from **Connect → Transaction pooler**. Replace the password placeholder with the database password and percent-encode any reserved characters. TLS certificate verification is enabled.
+   - `SUPABASE_SERVICE_ROLE_KEY` only if administrators should provision accounts through LUGHA. Keep it server-side and mark it sensitive. You can provision accounts manually in Supabase instead.
+   - Optional `GEMINI_API_KEY` for open-ended Layla conversations. Keep it server-side. Guided Practice works without it.
+4. Create and confirm a real administrator in **Supabase Authentication → Users** with a unique password. In a Git-ignored local `.env.local`, set `SUPABASE_DATABASE_URL` and `LUGHA_ADMIN_EMAIL`. From the workspace run `node --env-file=.env.local scripts/link-supabase-admin.mjs`. This creates a mapping for a confirmed Auth user and refuses to change an existing role.
+5. Redeploy the Vercel project to pick up its environment variables. Verify that a real school administrator can sign in and that parent and teacher access stays within authorised links.
+
+### Restricted demonstrations
+
+Create a separate Supabase project containing only fictional records, run the same migration, and use a Vercel preview protected by Vercel Authentication. Confirm signed-out visitors cannot open the preview before enabling demo sign-in. In the **Preview** environment only, set the demo Supabase connection values plus `LUGHA_DEMO_AUTH_ENABLED=1` and `LUGHA_DEMO_HOST` to the exact protected preview hostname. Demo accounts are rejected on Vercel Production even if a demo flag is accidentally set there.
+
+For one-time provisioning, place the separate demo project URL and database URL, a privileged server key, its project reference as `SUPABASE_DEMO_PROJECT_REF`, `LUGHA_DEMO_PROVISION=1`, and the five requested passwords in a local ignored `.env.local` using the placeholders in [.env.example](.env.example). Run `node --env-file=.env.local scripts/provision-supabase-demo.mjs`. The script creates the five actual Supabase Auth users and leaves any existing passwords alone. The parent is linked to Amina, the teacher's class contains both fictional students, and Kareem has functional reading and gameplay accommodations. Clear provisioning secrets when finished. Never enable the fixed-password accounts on an unprotected deployment.
+
+LUGHA still supports guest previews and existing local SQLite development. The migration creates a new Supabase schema. Any transfer of historical data from another database needs an authorised export and a reviewed migration. School information system integration needs approved identity, roster/class assignments, parent links and functional accommodation data. The included school adapter does not call any external school system.
