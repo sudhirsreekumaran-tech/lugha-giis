@@ -333,16 +333,18 @@ function renderSchoolAdmin(data){
 function adminPage(){
  return intro('Content Studio','Manage school accounts, classes and Arabic learning materials.')+'<section id="school-admin-workspace" aria-label="School administration"><p>Loading school accounts…</p></section>'+'<section class="panel"><form id="content-form"><label>Edit a lesson<select name="existing" id="existing"><option value="">New lesson</option>'+lessons.map(x=>'<option value="'+x.id+'">'+escape(x.title)+'</option>').join('')+'</select></label><label>Lesson name<input name="title" required maxlength="120"></label><label>World<select name="world">'+worlds.map((x,i)=>'<option value="'+i+'">'+x[0]+'</option>').join('')+'</select></label><label>Vocabulary (one line per item, using Arabic | English | transliteration)<textarea required name="items"></textarea></label><button class="btn">Save lesson</button></form><div id="accounts"></div></section>';
 }
-const signInRoles=[['student','Student','home','Learn and practise Arabic'],['parent','Parent','help','Follow your linked children'],['teacher','Teacher','video','Teach and assign work'],['admin','Administrator','settings','Manage the school workspace']];
+const signInRoles=[['student','Student','home','Learn and practise Arabic'],['parent','Parent','help','Follow your linked children'],['teacher','Teacher','video','Teach and assign work']];
+const adminSignIn=['admin','Administrator','settings','Manage the school workspace'];
+const dashboards={parent:'parent',teacher:'teacher',admin:'admin'};
 function account(){location.hash='login/'+signInRole;}
 function loginPage(){
  const recovering=route==='recover';
  const mode=recovering?'reset':args[0]==='forgot'?'forgot':'login';
- const role=signInRoles.find(item=>item[0]===args[0])||signInRoles[0];
+ const role=args[0]==='admin'?adminSignIn:signInRoles.find(item=>item[0]===args[0])||signInRoles[0];
  if(mode==='login')signInRole=role[0];
  const logo=schoolLogo();
  return '<div class="identity-layout"><section class="identity-intro">'+logo+'<p class="label">A GIIS Student Innovation</p><h1>Welcome to LUGHA</h1><p>Play. Learn. Connect.</p>'+link('Explore as a guest','home','outline')+'</section><section class="panel identity-panel">'+
- (mode==='login'?'<h2>School sign-in</h2><p>Choose your role to continue.</p><nav class="identity-roles" aria-label="School sign-in roles">'+signInRoles.map(([id,title,symbol,desc])=>'<a href="#login/'+id+'" class="identity-role '+(role[0]===id?'selected':'')+'" '+(role[0]===id?'aria-current="page"':'')+'>'+icon(symbol)+'<strong>'+title+'</strong><small>'+desc+'</small></a>').join('')+'</nav>':'<h2>'+(mode==='forgot'?'Reset your password':'Choose a new password')+'</h2>')+
+ (mode==='login'?(role[0]==='admin'?'<h2>Administrator Login</h2>':'<h2>School sign-in</h2><p>Choose your role to continue.</p><nav class="identity-roles" aria-label="School sign-in roles">'+signInRoles.map(([id,title,symbol,desc])=>'<a href="#login/'+id+'" class="identity-role '+(role[0]===id?'selected':'')+'" '+(role[0]===id?'aria-current="page"':'')+'>'+icon(symbol)+'<strong>'+title+' Login</strong><small>'+desc+'</small></a>').join('')+'</nav>'):'<h2>'+(mode==='forgot'?'Reset your password':'Choose a new password')+'</h2>')+
  (preview?'<p class="identity-status" role="status">School sign-in is unavailable in the public guest preview.</p>':'<form id="account-form"><input type="hidden" name="role" value="'+role[0]+'"><input type="hidden" name="mode" value="'+mode+'">'+
  (mode!=='reset'?'<label>School email<input name="email" type="email" autocomplete="username" required></label>':'')+
  (mode!=='forgot'?'<label>'+(mode==='reset'?'New password':'Password')+'<input id="school-password" name="password" type="password" minlength="'+(mode==='reset'?12:10)+'" maxlength="128" autocomplete="'+(mode==='reset'?'new-password':'current-password')+'" required></label>'+btn('Show password','showpassword','outline small'):'')+
@@ -463,7 +465,7 @@ function slide(next=0){
 function routeChange(){
  if(video)video.running=false;
  clearTimeout(tracking);stopAudio();recognition?.abort();
- [route,...args]=(location.hash.slice(1)||'home').split('/');
+ [route,...args]=(location.hash.slice(1)||(state.guest?'login/student':dashboards[state.role]||'home')).split('/');
  if(route==='games'){route='videos';args=['games'];history.replaceState(null,'','#videos/games');}
  if(route!=='arcade'||gameRun?.config.game!==args[0])gameRun=null;
  const request=++accountRequest;
@@ -591,7 +593,7 @@ document.addEventListener('submit',async event=>{
       state=await api('login',{email:data.email,password:data.password,role:data.role,remember:data.remember==='on'});
       resetSmartArabic();
       parentChildren=[];parentChild='';
-      location.hash=({parent:'parent',teacher:'teacher',admin:'admin'})[state.role]||'home';
+      location.hash=dashboards[state.role]||'home';
       routeChange();
      }
     }catch(e){if(message.isConnected){message.textContent=e.message;message.hidden=false;}}
